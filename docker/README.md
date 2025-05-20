@@ -28,7 +28,7 @@ This guide explains how to deploy the 180-Day Rule Calculator application using 
 
 ## Quick Start
 
-We provide a convenient script `docker-dev.sh` to manage Docker operations:
+We provide a convenient script `docker-dev.sh` to manage Docker operations. Here are all available commands:
 
 ```bash
 # Make the script executable (first time only)
@@ -45,7 +45,18 @@ chmod +x docker/docker-dev.sh
 
 # View container logs
 ./docker/docker-dev.sh logs
+
+# Clean images and rebuild from scratch
+./docker/docker-dev.sh redeploy
 ```
+
+### Command Descriptions
+
+- `deploy`: Builds and starts the containers for the first time
+- `start`: Starts existing containers without rebuilding
+- `stop`: Stops all running containers
+- `logs`: Shows real-time container logs (press Ctrl+C to exit)
+- `redeploy`: Removes all containers and images, then rebuilds from scratch (useful when you need a clean state)
 
 ## Manual Deployment Steps
 

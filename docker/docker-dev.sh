@@ -2,10 +2,11 @@
 
 # Shell script to manage Docker operations for the 180-Day Rule Calculator
 # Usage: 
-#   ./docker-dev.sh start  - Start the containers
-#   ./docker-dev.sh stop   - Stop the containers
-#   ./docker-dev.sh deploy - Build and start the containers
-#   ./docker-dev.sh logs   - View container logs
+#   ./docker-dev.sh start   - Start the containers
+#   ./docker-dev.sh stop    - Stop the containers
+#   ./docker-dev.sh deploy  - Build and start the containers
+#   ./docker-dev.sh logs    - View container logs
+#   ./docker-dev.sh redeploy - Clean image and build again
 
 # Configuration
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,7 +21,7 @@ check_docker() {
 }
 
 # Function to start containers
-start_containers() {
+start() {
     echo "Starting containers..."
     docker-compose -f "$DOCKER_COMPOSE_FILE" up -d
     echo "Containers started successfully!"
@@ -29,14 +30,14 @@ start_containers() {
 }
 
 # Function to stop containers
-stop_containers() {
+stop() {
     echo "Stopping containers..."
     docker-compose -f "$DOCKER_COMPOSE_FILE" down
     echo "Containers stopped successfully!"
 }
 
 # Function to deploy (build and start) containers
-deploy_containers() {
+deploy() {
     echo "Building and starting containers..."
     docker-compose -f "$DOCKER_COMPOSE_FILE" up --build -d
     echo "Containers deployed successfully!"
@@ -45,9 +46,20 @@ deploy_containers() {
 }
 
 # Function to view logs
-view_logs() {
+logs() {
     echo "Viewing container logs (press Ctrl+C to exit)..."
     docker-compose -f "$DOCKER_COMPOSE_FILE" logs -f
+}
+
+# Function to clean and rebuild containers
+redeploy() {
+    echo "Cleaning containers and images..."
+    docker-compose -f "$DOCKER_COMPOSE_FILE" down --rmi all
+    echo "Building containers from scratch..."
+    docker-compose -f "$DOCKER_COMPOSE_FILE" up --build -d
+    echo "Containers cleaned and rebuilt successfully!"
+    echo "Frontend: http://localhost:8000"
+    echo "Backend: http://localhost:5001"
 }
 
 # Main script execution
@@ -55,23 +67,27 @@ check_docker
 
 case "$1" in
     "start")
-        start_containers
+        start
         ;;
     "stop")
-        stop_containers
+        stop
         ;;
     "deploy")
-        deploy_containers
+        deploy
         ;;
     "logs")
-        view_logs
+        logs
+        ;;
+    "redeploy")
+        redeploy
         ;;
     *)
-        echo "Usage: $0 {start|stop|deploy|logs}"
-        echo "  start  - Start the containers"
-        echo "  stop   - Stop the containers"
-        echo "  deploy - Build and start the containers"
-        echo "  logs   - View container logs"
+        echo "Usage: $0 {start|stop|deploy|logs|redeploy}"
+        echo "  start    - Start the containers"
+        echo "  stop     - Stop the containers"
+        echo "  deploy   - Build and start the containers"
+        echo "  logs     - View container logs"
+        echo "  redeploy - Clean image and build again"
         exit 1
         ;;
 esac 

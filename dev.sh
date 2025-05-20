@@ -17,6 +17,7 @@ PID_FILE="$PROJECT_DIR/.server_pids"
 LOGS_DIR="$PROJECT_DIR/logs"
 BACKEND_LOG="$LOGS_DIR/backend.log"
 FRONTEND_LOG="$LOGS_DIR/frontend.log"
+CSV_FILE_PATH="$PROJECT_DIR/server/data/absence_periods.csv"
 
 # Function to check if a port is in use
 is_port_in_use() {
@@ -53,7 +54,7 @@ start_backend() {
     # Start the Flask server
     source "$VENV_ACTIVATE"
     cd "$SERVER_DIR" || exit 1
-    python3 app.py > "$BACKEND_LOG" 2>&1 &
+    CSV_FILE_PATH="$CSV_FILE_PATH" python3 app.py > "$BACKEND_LOG" 2>&1 &
     BACKEND_PID=$!
     
     echo "Backend server started with PID: $BACKEND_PID"

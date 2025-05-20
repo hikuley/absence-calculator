@@ -5,7 +5,6 @@ WORKDIR /usr/share/nginx/html
 
 # Copy static files
 COPY index.html .
-COPY absence_periods.csv .
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 
 # Create empty config.js file

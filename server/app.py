@@ -37,6 +37,12 @@ def options_absence_period(period_id):
 # Define the path to the CSV file
 CSV_FILE_PATH = os.environ.get('CSV_FILE_PATH', 'absence_periods.csv')
 
+# Ensure the directory for the CSV file exists
+csv_dir = os.path.dirname(CSV_FILE_PATH)
+if csv_dir and not os.path.exists(csv_dir):
+    print(f"Creating directory: {csv_dir}")
+    os.makedirs(csv_dir, exist_ok=True)
+
 # Ensure the CSV file exists
 if not os.path.exists(CSV_FILE_PATH):
     print(f"CSV file not found at {CSV_FILE_PATH}, creating a new one")

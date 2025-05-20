@@ -112,6 +112,42 @@ check_status() {
     return 0
 }
 
+# Function to build Docker images
+build_images() {
+    local rebuild=$1
+    
+    echo "Building Docker images..."
+    
+    if [ "$rebuild" = "true" ]; then
+        echo "Forcing rebuild of all images..."
+        docker build --no-cache -t absence-calculator-backend:latest -f k8s/backend/Dockerfile .
+        if [ $? -ne 0 ]; then
+            echo "Error: Failed to build backend image"
+            return 1
+        fi
+
+        docker build --no-cache -t absence-calculator-frontend:latest -f k8s/frontend/Dockerfile .
+        if [ $? -ne 0 ]; then
+            echo "Error: Failed to build frontend image"
+            return 1
+        fi
+    else
+        docker build -t absence-calculator-backend:latest -f k8s/backend/Dockerfile .
+        if [ $? -ne 0 ]; then
+            echo "Error: Failed to build backend image"
+            return 1
+        fi
+
+        docker build -t absence-calculator-frontend:latest -f k8s/frontend/Dockerfile .
+        if [ $? -ne 0 ]; then
+            echo "Error: Failed to build frontend image"
+            return 1
+        fi
+    fi
+    
+    return 0
+}
+
 # Check if kubectl is installed
 if ! command_exists kubectl; then
     echo "Error: kubectl is not installed"
@@ -126,6 +162,22 @@ fi
 
 # Function to start the application
 start() {
+    local rebuild=false
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --rebuild)
+                rebuild=true
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1"
+                exit 1
+                ;;
+        esac
+    done
+
     echo "Starting the application..."
 
     # Start minikube if not running
@@ -148,17 +200,8 @@ start() {
         exit 1
     fi
 
-    # Build Docker images using minikube's Docker daemon
-    echo "Building Docker images..."
-    docker build -t absence-calculator-backend:latest -f k8s/backend/Dockerfile .
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to build backend image"
-        exit 1
-    fi
-
-    docker build -t absence-calculator-frontend:latest -f k8s/frontend/Dockerfile .
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to build frontend image"
+    # Build Docker images
+    if ! build_images $rebuild; then
         exit 1
     fi
 
@@ -219,7 +262,8 @@ stop() {
 # Main script
 case "$1" in
     "start")
-        start
+        shift
+        start "$@"
         ;;
     "stop")
         stop
@@ -228,7 +272,7 @@ case "$1" in
         check_status
         ;;
     *)
-        echo "Usage: $0 {start|stop|status}"
+        echo "Usage: $0 {start [--rebuild]|stop|status}"
         exit 1
         ;;
 esac 

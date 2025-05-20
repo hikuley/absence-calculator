@@ -13,7 +13,11 @@ This guide explains how to deploy the Absence Calculator application using Kuber
 
 1. Start the application:
 ```bash
+# Normal start (uses cached images if available)
 ./k8s/dev.sh start
+
+# Force rebuild of Docker images from scratch
+./k8s/dev.sh start --rebuild
 ```
 
 2. Check application status:
@@ -45,6 +49,7 @@ The `dev.sh` script handles the entire deployment process:
    - Builds backend image using `k8s/backend/Dockerfile`
    - Builds frontend image using `k8s/frontend/Dockerfile`
    - Uses Minikube's Docker daemon for building
+   - Supports `--rebuild` flag to force rebuild from scratch
 
 3. **Kubernetes Deployment**:
    - Deploys backend service and deployment
@@ -99,6 +104,7 @@ kubectl get services
    - Ensure Minikube is running
    - Verify Docker daemon configuration
    - Check image build logs
+   - Try rebuilding images with `./k8s/dev.sh start --rebuild`
 
 ## Cleanup
 
@@ -118,4 +124,5 @@ This will:
 - The application runs in the background after starting
 - Port forwarding processes are managed automatically
 - Status can be checked at any time using the status command
-- All logs are stored in `/tmp/absence-calculator/` for debugging 
+- All logs are stored in `/tmp/absence-calculator/` for debugging
+- Use `--rebuild` flag when you need to rebuild Docker images from scratch 

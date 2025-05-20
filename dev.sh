@@ -32,7 +32,7 @@ check_venv() {
         echo "Please set up the virtual environment first:"
         echo "python3 -m venv $VENV_DIR"
         echo "source $VENV_ACTIVATE"
-        echo "pip install flask flask-cors"
+        echo "pip install fastapi uvicorn pydantic python-dateutil"
         exit 1
     fi
 }
@@ -51,10 +51,10 @@ start_backend() {
     # Create logs directory if it doesn't exist
     mkdir -p "$LOGS_DIR"
     
-    # Start the Flask server
+    # Start the FastAPI server with Uvicorn
     source "$VENV_ACTIVATE"
     cd "$SERVER_DIR" || exit 1
-    CSV_FILE_PATH="$CSV_FILE_PATH" python3 app.py > "$BACKEND_LOG" 2>&1 &
+    CSV_FILE_PATH="$CSV_FILE_PATH" uvicorn app:app --host 0.0.0.0 --port $BACKEND_PORT --reload > "$BACKEND_LOG" 2>&1 &
     BACKEND_PID=$!
     
     echo "Backend server started with PID: $BACKEND_PID"

@@ -112,6 +112,36 @@ check_status() {
     return 0
 }
 
+# Function to show logs
+show_logs() {
+    local follow=$1
+    
+    echo "=== Frontend Logs ==="
+    if [ "$follow" = "true" ]; then
+        kubectl logs -f -l app=frontend
+    else
+        kubectl logs -l app=frontend
+    fi
+    
+    echo -e "\n=== Backend Logs ==="
+    if [ "$follow" = "true" ]; then
+        kubectl logs -f -l app=backend
+    else
+        kubectl logs -l app=backend
+    fi
+    
+    echo -e "\n=== Port Forwarding Logs ==="
+    if [ -f /tmp/absence-calculator/frontend.log ]; then
+        echo "Frontend Port Forwarding:"
+        cat /tmp/absence-calculator/frontend.log
+    fi
+    
+    if [ -f /tmp/absence-calculator/backend.log ]; then
+        echo "Backend Port Forwarding:"
+        cat /tmp/absence-calculator/backend.log
+    fi
+}
+
 # Function to build Docker images
 build_images() {
     local rebuild=$1
@@ -271,8 +301,16 @@ case "$1" in
     "status")
         check_status
         ;;
+    "logs")
+        shift
+        if [ "$1" = "--follow" ]; then
+            show_logs true
+        else
+            show_logs false
+        fi
+        ;;
     *)
-        echo "Usage: $0 {start [--rebuild]|stop|status}"
+        echo "Usage: $0 {start [--rebuild]|stop|status|logs [--follow]}"
         exit 1
         ;;
 esac 

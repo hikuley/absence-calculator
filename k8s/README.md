@@ -25,7 +25,16 @@ This guide explains how to deploy the Absence Calculator application using Kuber
 ./k8s/dev.sh status
 ```
 
-3. Stop the application:
+3. View application logs:
+```bash
+# Show current logs
+./k8s/dev.sh logs
+
+# Follow logs in real-time
+./k8s/dev.sh logs --follow
+```
+
+4. Stop the application:
 ```bash
 ./k8s/dev.sh stop
 ```
@@ -69,14 +78,18 @@ The `dev.sh` script handles the entire deployment process:
 ```
 This will show if the application is running and provide access URLs.
 
-### View Pod Logs
+### View Application Logs
 ```bash
-# Backend logs
-kubectl logs -l app=backend
+# Show current logs
+./k8s/dev.sh logs
 
-# Frontend logs
-kubectl logs -l app=frontend
+# Follow logs in real-time
+./k8s/dev.sh logs --follow
 ```
+This will show:
+- Frontend application logs
+- Backend application logs
+- Port forwarding logs
 
 ### Check Pod Status
 ```bash
@@ -125,4 +138,5 @@ This will:
 - Port forwarding processes are managed automatically
 - Status can be checked at any time using the status command
 - All logs are stored in `/tmp/absence-calculator/` for debugging
-- Use `--rebuild` flag when you need to rebuild Docker images from scratch 
+- Use `--rebuild` flag when you need to rebuild Docker images from scratch
+- Use `logs` command to view application and port forwarding logs 

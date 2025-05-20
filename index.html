@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>180-Day Rule Calculator</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.1.0/dist/chartjs-plugin-annotation.min.js"></script>
+  <script>
+    // Make sure Chart is defined before trying to use plugins
+    document.addEventListener('DOMContentLoaded', function() {
+      if (typeof Chart !== 'undefined' && Chart.register) {
+        // The annotation plugin should auto-register, but we'll make sure
+        if (typeof ChartAnnotation !== 'undefined') {
+          Chart.register(ChartAnnotation);
+        }
+      }
+    });
+  </script>
+  <style>
+    body {
+      background-color: #f8f9fa;
+      padding: 20px;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .card {
+      margin-bottom: 20px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    .absence-list {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .results-display .badge {
+      font-size: 0.9rem;
+      padding: 0.5rem 0.75rem;
+    }
+    /* Custom modal styles for fixed header and footer */
+    #periodsModal .modal-dialog {
+      max-width: 800px;
+      height: 80vh;
+    }
+    
+    #periodsModal .modal-content {
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+    }
+    
+    #periodsModal .modal-header {
+      background-color: white;
+      border-bottom: 1px solid #dee2e6;
+      padding: 1rem;
+    }
+    
+    #periodsModal .modal-body {
+      overflow-y: auto;
+      padding: 1rem;
+    }
+    
+    #periodsModal .modal-footer {
+      background-color: white;
+      border-top: 1px solid #dee2e6;
+      padding: 1rem;
+    }
+    
+    /* Ensure table takes full width */
+    #periodsModal .table-responsive {
+      width: 100%;
+    }
+    
+    /* Fixed table header */
+    #periodsModal .table-responsive {
+      max-height: calc(80vh - 150px);
+      overflow-y: auto;
+    }
+    
+    #periodsModal table {
+      position: relative;
+    }
+    
+    #periodsModal thead {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background-color: #f8f9fa;
+    }
+    
+    #periodsModal th {
+      position: sticky;
+      top: 0;
+      background-color: #f8f9fa;
+      box-shadow: 0 1px 0 rgba(0,0,0,0.1);
+    }
+  </style>
+</head>
+<body>
+  <div class="container mt-4">
+    <h1 class="text-center mb-4">180-Day Rule Calculator</h1>
+    
+    <div class="row">
+      <div class="col-md-5">
+        <div class="card p-3">
+          <h3>Add Absence Period</h3>
+          <form id="absence-form" class="mb-3">
+            <div class="mb-3">
+              <label for="start-date" class="form-label">Start Date</label>
+              <input type="date" class="form-control" id="start-date" required>
+              <div class="form-text">Date when you left the UK (not counted as absence)</div>
+            </div>
+            <div class="mb-3">
+              <label for="end-date" class="form-label">End Date</label>
+              <input type="date" class="form-control" id="end-date" required>
+              <div class="form-text">Date when you returned to the UK (not counted as absence)</div>
+            </div>
+            <button type="submit" class="btn btn-success w-100"><i class="fas fa-plus"></i> Add Period</button>
+          </form>
+          
+          <hr>
+          
+          <h3>Decision Date</h3>
+          <div class="mb-3">
+            <input type="date" class="form-control" id="decision-date">
+          </div>
+          <button id="calculate-btn" class="btn btn-primary w-100 mb-3">Calculate</button>
+          
+          <hr>
+          
+          <h3>Absence Periods</h3>
+          <div class="absence-list">
+            <table class="table table-striped table-sm">
+              <thead>
+                <tr>
+                  <th>Start Date</th>
+                  <th>End Date</th>
+                  <th>Days</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="absence-table-body">
+                <!-- Absence periods will be added here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      
+      <div class="col-md-7">
+        <div class="card p-3 pb-2">
+          <h3 class="mb-4">Results</h3>
+          <div id="results-container">
+            <p>Click "Calculate" to see results.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Modal for showing all periods -->
+  <div class="modal fade" id="periodsModal" tabindex="-1" aria-labelledby="periodsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="periodsModalLabel">All 12-Month Periods</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body p-0">
+          <div class="table-responsive">
+            <table class="table table-striped table-bordered mb-0">
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th>Days Absent</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="modal-table-body">
+                <!-- Detailed periods will be added here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <div class="d-flex justify-content-between w-100">
+            <div>
+              <span id="periods-count" class="text-muted">0 periods</span>
+            </div>
+            <div>
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Modal for showing absence chart -->
+  <div class="modal fade" id="chartModal" tabindex="-1" aria-labelledby="chartModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="chartModalLabel">Absence Days Chart</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="chart-container" style="position: relative; height:60vh; width:100%">
+            <canvas id="absenceChart"></canvas>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // API URL - Use environment variable if available, otherwise fallback to localhost
+    const API_URL = window.API_URL || 'http://localhost:5001/api';
+    
+    // DOM elements
+    const absenceForm = document.getElementById('absence-form');
+    const startDateInput = document.getElementById('start-date');
+    const endDateInput = document.getElementById('end-date');
+    const decisionDateInput = document.getElementById('decision-date');
+    const calculateBtn = document.getElementById('calculate-btn');
+    const absenceTableBody = document.getElementById('absence-table-body');
+    const resultsContainer = document.getElementById('results-container');
+    const modalTableBody = document.getElementById('modal-table-body');
+    
+    // Set default decision date to today
+    const today = new Date();
+    decisionDateInput.value = today.toISOString().split('T')[0];
+    
+    // Fetch absence periods on page load
+    document.addEventListener('DOMContentLoaded', async () => {
+      await fetchAbsencePeriods();
+      await calculateRule();
+    });
+    
+    // Add or update absence period
+    absenceForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const startDate = startDateInput.value;
+      const endDate = endDateInput.value;
+      
+      if (new Date(endDate) < new Date(startDate)) {
+        alert('End date must be after start date');
+        return;
+      }
+      
+      try {
+        let url = `${API_URL}/absence-periods`;
+        let method = 'POST';
+        
+        // Check if we're updating an existing period
+        const updateId = absenceForm.dataset.updateId;
+        if (updateId) {
+          url = `${API_URL}/absence-periods/${updateId}`;
+          method = 'PUT';
+        }
+        
+        const response = await fetch(url, {
+          method: method,
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            start_date: startDate,
+            end_date: endDate
+          })
+        });
+        
+        if (response.ok) {
+          // Reset the form
+          resetForm();
+          
+          // Refresh the data
+          await fetchAbsencePeriods();
+          await calculateRule();
+        } else {
+          const error = await response.json();
+          alert(`Error: ${error.error || `Failed to ${updateId ? 'update' : 'add'} absence period`}`);
+        }
+      } catch (err) {
+        console.error(`Error ${absenceForm.dataset.updateId ? 'updating' : 'adding'} absence period:`, err);
+        alert(`Failed to ${absenceForm.dataset.updateId ? 'update' : 'add'} absence period`);
+      }
+    });
+    
+    // Calculate 180-day rule
+    calculateBtn.addEventListener('click', calculateRule);
+    
+    // Fetch absence periods
+    async function fetchAbsencePeriods() {
+      try {
+        const response = await fetch(`${API_URL}/absence-periods`);
+        const data = await response.json();
+        
+        renderAbsencePeriods(data);
+      } catch (err) {
+        console.error('Error fetching absence periods:', err);
+        alert('Failed to fetch absence periods');
+      }
+    }
+    
+    // Calculate 180-day rule
+    async function calculateRule() {
+      try {
+        const decisionDate = decisionDateInput.value;
+        
+        if (!decisionDate) {
+          alert('Please select a decision date');
+          return;
+        }
+        
+        const response = await fetch(`${API_URL}/calculate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            decision_date: decisionDate
+          })
+        });
+        
+        const result = await response.json();
+        renderResults(result);
+      } catch (err) {
+        console.error('Error calculating 180-day rule:', err);
+        alert('Failed to calculate 180-day rule');
+      }
+    }
+    
+    // Update absence period
+    window.updateAbsencePeriod = function(id, startDate, endDate) {
+      // Fill the form with the existing values
+      startDateInput.value = startDate;
+      endDateInput.value = endDate;
+      
+      // Store the ID to be updated
+      absenceForm.dataset.updateId = id;
+      
+      // Change the submit button text
+      const submitBtn = absenceForm.querySelector('button[type="submit"]');
+      submitBtn.innerHTML = '<i class="fas fa-save"></i> Update Period';
+      submitBtn.classList.remove('btn-success');
+      submitBtn.classList.add('btn-primary');
+      
+      // Add a cancel button if it doesn't exist
+      if (!document.getElementById('cancel-update-btn')) {
+        const cancelBtn = document.createElement('button');
+        cancelBtn.id = 'cancel-update-btn';
+        cancelBtn.className = 'btn btn-outline-secondary w-100 mt-2';
+        cancelBtn.innerHTML = '<i class="fas fa-times"></i> Cancel';
+        cancelBtn.onclick = function(e) {
+          e.preventDefault();
+          resetForm();
+        };
+        submitBtn.parentNode.appendChild(cancelBtn);
+      }
+      
+      // Scroll to the form
+      absenceForm.scrollIntoView({ behavior: 'smooth' });
+    };
+    
+    // Reset the form to add mode
+    function resetForm() {
+      // Clear the update ID
+      delete absenceForm.dataset.updateId;
+      
+      // Reset the form fields
+      absenceForm.reset();
+      
+      // Reset the submit button
+      const submitBtn = absenceForm.querySelector('button[type="submit"]');
+      submitBtn.innerHTML = '<i class="fas fa-plus"></i> Add Period';
+      submitBtn.classList.remove('btn-primary');
+      submitBtn.classList.add('btn-success');
+      
+      // Remove the cancel button if it exists
+      const cancelBtn = document.getElementById('cancel-update-btn');
+      if (cancelBtn) {
+        cancelBtn.remove();
+      }
+    }
+    
+    // Delete absence period
+    async function deleteAbsencePeriod(id) {
+      try {
+        const response = await fetch(`${API_URL}/absence-periods/${id}`, {
+          method: 'DELETE'
+        });
+        
+        if (response.ok) {
+          await fetchAbsencePeriods();
+          await calculateRule();
+        } else {
+          const error = await response.json();
+          alert(`Error: ${error.error || 'Failed to delete absence period'}`);
+        }
+      } catch (err) {
+        console.error('Error deleting absence period:', err);
+        alert('Failed to delete absence period');
+      }
+    }
+    
+    // Render absence periods
+    function renderAbsencePeriods(periods) {
+      absenceTableBody.innerHTML = '';
+      
+      if (periods.length === 0) {
+        absenceTableBody.innerHTML = `
+          <tr>
+            <td colspan="4" class="text-center">No absence periods added yet.</td>
+          </tr>
+        `;
+        return;
+      }
+      
+      periods.forEach(period => {
+        const startDate = new Date(period.start_date);
+        const endDate = new Date(period.end_date);
+        const days = calculateDays(startDate, endDate);
+        
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td>${formatDate(startDate)}</td>
+          <td>${formatDate(endDate)}</td>
+          <td>${days}</td>
+          <td>
+            <div class="btn-group">
+              <button class="btn btn-outline-primary btn-sm" onclick="updateAbsencePeriod('${period.id}', '${period.start_date}', '${period.end_date}')"><i class="fas fa-edit"></i></button>
+              <button class="btn btn-outline-danger btn-sm" onclick="deleteAbsencePeriod('${period.id}')"><i class="fas fa-trash-alt"></i></button>
+            </div>
+          </td>
+        `;
+        
+        absenceTableBody.appendChild(row);
+      });
+    }
+    
+    // Render calculation results
+    function renderResults(result) {
+      if (!result) {
+        resultsContainer.innerHTML = '<p>Click "Calculate" to see results.</p>';
+        return;
+      }
+      
+      const compliesClass = result.complies ? 'success' : 'danger';
+      const compliesText = result.complies ? 'COMPLIES' : 'DOES NOT COMPLY';
+      
+      let html = `
+        <div class="card mb-4">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0">Summary</h4>
+            <span class="badge bg-${compliesClass}">${compliesText}</span>
+          </div>
+          <div class="card-body">
+            <div class="mb-2"><strong>Decision Date:</strong> ${result.decision_date}</div>
+            <div class="mb-2"><strong>Qualifying Period Start:</strong> ${result.qualifying_start}</div>
+            <div class="mb-2"><strong>Total Days Absent:</strong> ${result.total_days_absent}</div>
+            <div class="mb-2"><strong>Worst 12-Month Period:</strong> ${result.worst_period || 'N/A'}</div>
+            <div class="mb-2">
+              <strong>Days Absent in Worst Period:</strong>
+              <span class="badge bg-${result.worst_period_days <= 180 ? 'success' : 'danger'}">
+                ${result.worst_period_days} days
+              </span>
+            </div>
+            <div class="alert alert-info py-2 mb-1">
+              <strong>Note:</strong> The 180-day rule requires that you must not have spent more than 180 days 
+              outside the UK in any rolling 12-month period during the 5-year qualifying period.
+            </div>
+          </div>
+        </div>
+      `;
+      
+      // Detailed periods
+      if (result.detailed_periods && Object.keys(result.detailed_periods).length > 0) {
+        const detailedPeriods = getDetailedPeriods(result.detailed_periods);
+        const displayedPeriods = detailedPeriods.slice(0, 9); // Show 9 periods as requested
+        
+        html += `<div class="card mt-2">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0">Detailed 12-Month Periods</h4>
+            <div>
+              <button class="btn btn-sm btn-outline-success me-2" data-bs-toggle="modal" data-bs-target="#chartModal" onclick="showAbsenceChart(${JSON.stringify(detailedPeriods).replace(/"/g, '&quot;')})">Show Chart</button>
+              ${detailedPeriods.length > 9 ? `<button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#periodsModal" onclick="showAllPeriods(${JSON.stringify(detailedPeriods).replace(/"/g, '&quot;')})">Show All (${detailedPeriods.length})</button>` : ''}
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-striped table-bordered mb-0">
+                <thead>
+                  <tr>
+                    <th>Period</th>
+                    <th>Days Absent</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>`;
+        
+        displayedPeriods.forEach(item => {
+          const rowClass = item.days > 180 ? 'table-danger' : '';
+          const badgeClass = item.days <= 180 ? 'success' : 'danger';
+          const statusSymbol = item.days <= 180 ? '✓' : '✗';
+          
+          html += `
+            <tr class="${rowClass}">
+              <td>${item.period}</td>
+              <td>${item.days}</td>
+              <td><span class="badge bg-${badgeClass}">${statusSymbol}</span></td>
+            </tr>
+          `;
+        });
+        
+        html += `</tbody></table></div></div></div>`; // Close table, table-responsive, card-body, and card
+      }
+      
+      resultsContainer.innerHTML = html;
+    }
+    
+    // Show all periods in modal
+    window.showAllPeriods = function(periods) {
+      modalTableBody.innerHTML = '';
+      
+      // Update the periods count in the footer
+      const periodsCountElement = document.getElementById('periods-count');
+      periodsCountElement.textContent = `${periods.length} periods`;
+      
+      periods.forEach(item => {
+        const rowClass = item.days > 180 ? 'table-danger' : '';
+        const badgeClass = item.days <= 180 ? 'success' : 'danger';
+        const statusSymbol = item.days <= 180 ? '✓' : '✗';
+        
+        const row = document.createElement('tr');
+        row.className = rowClass;
+        row.innerHTML = `
+          <td>${item.period}</td>
+          <td>${item.days}</td>
+          <td><span class="badge bg-${badgeClass}">${statusSymbol}</span></td>
+        `;
+        
+        modalTableBody.appendChild(row);
+      });
+    };
+    
+    // Show absence chart in modal
+    window.showAbsenceChart = function(periods) {
+      // Sort periods by date
+      periods.sort((a, b) => {
+        const dateA = new Date(a.period.split(' to ')[0]);
+        const dateB = new Date(b.period.split(' to ')[0]);
+        return dateA - dateB;
+      });
+      
+      // Get the canvas element
+      const ctx = document.getElementById('absenceChart').getContext('2d');
+      
+      // Check if a chart instance already exists and destroy it
+      if (window.absenceChartInstance) {
+        window.absenceChartInstance.destroy();
+      }
+      
+      // Find the decision date from the DOM (or use the current date if not available)
+      let decisionDate = new Date();
+      try {
+        const decisionDateStr = document.querySelector('#results-container .card-body div:nth-child(1)').textContent.split(':')[1].trim();
+        if (decisionDateStr) {
+          decisionDate = new Date(decisionDateStr);
+        }
+      } catch (e) {
+        console.error('Could not find decision date, using current date');
+      }
+      
+      // Create year periods (5 years back from decision date)
+      const yearPeriods = [];
+      for (let i = 0; i < 5; i++) {
+        const endYear = new Date(decisionDate);
+        endYear.setFullYear(endYear.getFullYear() - i);
+        
+        const startYear = new Date(endYear);
+        startYear.setFullYear(startYear.getFullYear() - 1);
+        
+        yearPeriods.push({
+          label: `Year ${i+1}: ${formatDate(startYear)} to ${formatDate(endYear)}`,
+          startDate: startYear,
+          endDate: endYear
+        });
+      }
+      
+      // Find maximum days absent for x-axis scale
+      const maxDays = Math.max(...periods.map(p => p.days), 200); // Ensure we go at least to 200 for the threshold line
+      
+      // Create horizontal bar chart data
+      const datasets = [];
+      
+      // For each year period, find the maximum days absent in any 12-month period that overlaps with it
+      yearPeriods.forEach((yearPeriod, index) => {
+        // Find all periods that overlap with this year
+        const overlappingPeriods = periods.filter(p => {
+          const periodStart = new Date(p.period.split(' to ')[0]);
+          const periodEnd = new Date(p.period.split(' to ')[1]);
+          
+          // Check if there's any overlap between the periods
+          return (periodStart <= yearPeriod.endDate && periodEnd >= yearPeriod.startDate);
+        });
+        
+        // Find the maximum days absent in any overlapping period
+        let maxDaysInYear = 0;
+        let worstPeriod = null;
+        
+        if (overlappingPeriods.length > 0) {
+          overlappingPeriods.forEach(p => {
+            if (p.days > maxDaysInYear) {
+              maxDaysInYear = p.days;
+              worstPeriod = p.period;
+            }
+          });
+        }
+        
+        datasets.push({
+          label: yearPeriod.label,
+          data: [maxDaysInYear],
+          backgroundColor: maxDaysInYear > 180 ? 'rgba(255, 99, 132, 0.7)' : 'rgba(54, 162, 235, 0.7)',
+          borderColor: maxDaysInYear > 180 ? 'rgba(255, 99, 132, 1)' : 'rgba(54, 162, 235, 1)',
+          borderWidth: 1,
+          worstPeriod: worstPeriod
+        });
+      });
+      
+      // Extract labels and data for line chart
+      const labels = yearPeriods.map(period => period.label);
+      const data = yearPeriods.map((period, index) => datasets[index].data[0]);
+      
+      // Create the chart
+      window.absenceChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Maximum Days Absent',
+              data: data,
+              borderColor: 'rgba(54, 162, 235, 1)',
+              backgroundColor: 'rgba(54, 162, 235, 0.2)',
+              fill: true,
+              tension: 0.2,
+              pointBackgroundColor: data.map(value => value > 180 ? 'rgba(255, 99, 132, 1)' : 'rgba(54, 162, 235, 1)'),
+              pointRadius: 6,
+              pointHoverRadius: 8
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: {
+              beginAtZero: true,
+              max: Math.ceil(maxDays / 50) * 50, // Round up to nearest 50
+              title: {
+                display: true,
+                text: 'Days Absent'
+              },
+              grid: {
+                color: function(context) {
+                  if (context.tick.value === 180) {
+                    return 'rgba(255, 0, 0, 0.5)';
+                  }
+                  return 'rgba(0, 0, 0, 0.1)';
+                },
+                lineWidth: function(context) {
+                  if (context.tick.value === 180) {
+                    return 2;
+                  }
+                  return 1;
+                }
+              }
+            },
+            x: {
+              title: {
+                display: true,
+                text: '5-Year Periods'
+              },
+              ticks: {
+                maxRotation: 45,
+                minRotation: 45
+              }
+            }
+          },
+          plugins: {
+            title: {
+              display: true,
+              text: 'Maximum Absence Days by Year Period',
+              font: {
+                size: 16
+              }
+            },
+            tooltip: {
+              callbacks: {
+                afterLabel: function(context) {
+                  const index = context.dataIndex;
+                  const worstPeriod = datasets[index].worstPeriod;
+                  return worstPeriod ? `Worst period: ${worstPeriod}` : '';
+                }
+              }
+            },
+            annotation: {
+              annotations: {
+                line1: {
+                  type: 'line',
+                  yMin: 180,
+                  yMax: 180,
+                  borderColor: 'rgba(255, 0, 0, 0.8)',
+                  borderWidth: 2,
+                  borderDash: [5, 5],
+                  label: {
+                    content: '180-day threshold',
+                    enabled: true,
+                    position: 'end'
+                  }
+                }
+              }
+            }
+          }
+        }
+      });
+    };
+    
+    // Helper function to format date as YYYY-MM-DD
+    function formatDate(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    
+    // Get detailed periods as sorted array
+    function getDetailedPeriods(detailedPeriods) {
+      return Object.entries(detailedPeriods)
+        .map(([period, days]) => ({ period, days }))
+        .sort((a, b) => {
+          const dateA = new Date(a.period.split(' to ')[0]);
+          const dateB = new Date(b.period.split(' to ')[0]);
+          return dateA - dateB;
+        });
+    }
+    
+    // Calculate days between dates (excluding start and end dates)
+    function calculateDays(startDate, endDate) {
+      const diffTime = Math.abs(endDate - startDate);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) - 1;
+      return diffDays > 0 ? diffDays : 0;
+    }
+    
+    // Format date to YYYY-MM-DD
+    function formatDate(date) {
+      return date.toISOString().split('T')[0];
+    }
+    
+    // Make deleteAbsencePeriod available globally
+    window.deleteAbsencePeriod = deleteAbsencePeriod;
+  </script>
+</body>
+</html>

@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: backend
+        image: absence-calculator-backend:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 5001
+        volumeMounts:
+        - name: data-volume
+          mountPath: /app/server/data
+        env:
+        - name: CSV_FILE_PATH
+          value: /app/server/data/absence_periods.csv
+      volumes:
+      - name: data-volume
+        hostPath:
+          path: /server/data
+          type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  selector:
+    app: backend
+  ports:
+  - port: 5001
+    targetPort: 5001
+    nodePort: 30001
+  type: NodePort 

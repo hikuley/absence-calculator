@@ -11,7 +11,7 @@ BACKEND_PORT=5001
 FRONTEND_PORT=8000
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER_DIR="$PROJECT_DIR/server"
-VENV_DIR="$PROJECT_DIR/venv"
+VENV_DIR="$SERVER_DIR/venv"
 VENV_ACTIVATE="$VENV_DIR/bin/activate"
 PID_FILE="$PROJECT_DIR/.server_pids"
 LOGS_DIR="$PROJECT_DIR/logs"
@@ -80,7 +80,7 @@ start_frontend() {
     mkdir -p "$LOGS_DIR"
     
     # Start the HTTP server
-    cd "$PROJECT_DIR" || exit 1
+    cd "$PROJECT_DIR/frontend" || exit 1
     python3 -m http.server "$FRONTEND_PORT" > "$FRONTEND_LOG" 2>&1 &
     FRONTEND_PID=$!
     

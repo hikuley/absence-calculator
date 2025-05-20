@@ -1,84 +1,77 @@
 #!/bin/bash
 
-# Script to manage Docker environment for Absence Calculator
+# Shell script to manage Docker operations for the 180-Day Rule Calculator
+# Usage: 
+#   ./docker-dev.sh start  - Start the containers
+#   ./docker-dev.sh stop   - Stop the containers
+#   ./docker-dev.sh deploy - Build and start the containers
+#   ./docker-dev.sh logs   - View container logs
 
 # Configuration
-DOCKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$DOCKER_DIR")"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DOCKER_COMPOSE_FILE="$PROJECT_DIR/docker/docker-compose.yml"
 
-# Function to display usage information
-show_usage() {
-    echo "Usage: $0 {start|stop|restart|logs|status}"
-    echo "  start   - Start the Docker containers"
-    echo "  stop    - Stop the Docker containers"
-    echo "  restart - Restart the Docker containers"
-    echo "  logs    - View container logs"
-    echo "  status  - Check container status"
-    exit 1
+# Function to check if Docker is running
+check_docker() {
+    if ! docker info > /dev/null 2>&1; then
+        echo "Error: Docker is not running. Please start Docker and try again."
+        exit 1
+    fi
 }
 
 # Function to start containers
 start_containers() {
-    echo "Starting Docker containers..."
-    cd "$DOCKER_DIR" || exit 1
-    docker-compose up -d
-    
-    echo "Waiting for services to start..."
-    sleep 3
-    
-    echo "Checking container status..."
-    docker-compose ps
-    
-    echo ""
-    echo "Absence Calculator is now running in Docker!"
+    echo "Starting containers..."
+    docker-compose -f "$DOCKER_COMPOSE_FILE" up -d
+    echo "Containers started successfully!"
     echo "Frontend: http://localhost:8000"
-    echo "Backend API: http://localhost:5001/api"
-    echo "Use './docker-dev.sh stop' to stop the containers."
+    echo "Backend: http://localhost:5001"
 }
 
 # Function to stop containers
 stop_containers() {
-    echo "Stopping Docker containers..."
-    cd "$DOCKER_DIR" || exit 1
-    docker-compose down
-    echo "All containers stopped."
+    echo "Stopping containers..."
+    docker-compose -f "$DOCKER_COMPOSE_FILE" down
+    echo "Containers stopped successfully!"
+}
+
+# Function to deploy (build and start) containers
+deploy_containers() {
+    echo "Building and starting containers..."
+    docker-compose -f "$DOCKER_COMPOSE_FILE" up --build -d
+    echo "Containers deployed successfully!"
+    echo "Frontend: http://localhost:8000"
+    echo "Backend: http://localhost:5001"
 }
 
 # Function to view logs
 view_logs() {
     echo "Viewing container logs (press Ctrl+C to exit)..."
-    cd "$DOCKER_DIR" || exit 1
-    docker-compose logs -f
-}
-
-# Function to check status
-check_status() {
-    echo "Checking container status..."
-    cd "$DOCKER_DIR" || exit 1
-    docker-compose ps
+    docker-compose -f "$DOCKER_COMPOSE_FILE" logs -f
 }
 
 # Main script execution
+check_docker
+
 case "$1" in
-    start)
+    "start")
         start_containers
         ;;
-    stop)
+    "stop")
         stop_containers
         ;;
-    restart)
-        stop_containers
-        start_containers
+    "deploy")
+        deploy_containers
         ;;
-    logs)
+    "logs")
         view_logs
         ;;
-    status)
-        check_status
-        ;;
     *)
-        show_usage
+        echo "Usage: $0 {start|stop|deploy|logs}"
+        echo "  start  - Start the containers"
+        echo "  stop   - Stop the containers"
+        echo "  deploy - Build and start the containers"
+        echo "  logs   - View container logs"
+        exit 1
         ;;
-esac
-
-exit 0
+esac 

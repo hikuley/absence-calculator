@@ -1,84 +1,99 @@
-# Docker Setup for Absence Calculator
+# Docker Deployment Guide
 
-This directory contains Docker configuration files for running the Absence Calculator application in containers.
-
-## Structure
-
-- `backend.Dockerfile`: Dockerfile for the Python FastAPI backend service
-- `frontend.Dockerfile`: Dockerfile for the frontend service using Nginx
-- `docker-compose.yml`: Docker Compose configuration to orchestrate both services
-- `nginx.conf`: Custom Nginx configuration for the frontend service
+This guide explains how to deploy the 180-Day Rule Calculator application using Docker.
 
 ## Prerequisites
 
-- Docker and Docker Compose installed on your system
-- No other services running on ports 5001 and 8000
+- Docker installed on your system
+- Docker Compose installed on your system
 
-## Usage
+## Directory Structure
 
-### Starting the Application
-
-From the project root directory, run:
-
-```bash
-cd docker
-docker-compose up -d
+```
+.
+├── docker/
+│   ├── backend/
+│   │   └── Dockerfile
+│   ├── frontend/
+│   │   └── Dockerfile
+│   ├── docker-compose.yml
+│   ├── docker-dev.sh
+│   └── README.md
+├── server/
+│   └── data/
+│       └── absence_periods.csv
+└── frontend/
 ```
 
-This will:
-1. Build the Docker images for both frontend and backend
-2. Start the containers in detached mode
-3. Map the necessary ports (backend: 5001, frontend: 8000)
-4. Set up volume mapping for persistent data storage
+## Quick Start
 
-### Accessing the Application
-
-- Frontend: http://localhost:8000
-- Backend API: http://localhost:5001/api
-
-### Stopping the Application
+We provide a convenient script `docker-dev.sh` to manage Docker operations:
 
 ```bash
-cd docker
-docker-compose down
+# Make the script executable (first time only)
+chmod +x docker/docker-dev.sh
+
+# Deploy the application (build and start)
+./docker/docker-dev.sh deploy
+
+# Start the containers (if already built)
+./docker/docker-dev.sh start
+
+# Stop the containers
+./docker/docker-dev.sh stop
+
+# View container logs
+./docker/docker-dev.sh logs
 ```
 
-### Viewing Logs
+## Manual Deployment Steps
 
-```bash
-# View logs from all services
-docker-compose logs
+If you prefer to run Docker commands directly:
 
-# View logs from a specific service
-docker-compose logs backend
-docker-compose logs frontend
+1. Make sure you have the required CSV file in place:
+   ```
+   server/data/absence_periods.csv
+   ```
 
-# Follow logs in real-time
-docker-compose logs -f
-```
+2. From the project root directory, run:
+   ```bash
+   docker-compose -f docker/docker-compose.yml up --build
+   ```
+
+   This will:
+   - Build both frontend and backend containers
+   - Start the services
+   - Make the application available at http://localhost:8000
+
+3. To stop the services:
+   ```bash
+   docker-compose -f docker/docker-compose.yml down
+   ```
+
+## Service Details
+
+- Frontend: Available at http://localhost:8000
+- Backend API: Available at http://localhost:5001
 
 ## Data Persistence
 
-The application data (absence_periods.csv) is stored in a Docker volume that persists between container restarts. The data is mapped from the host's `server/data` directory to the container's `/app/data` directory.
+The CSV file is mounted as a volume, so any changes made to the data will persist even after container restarts.
 
 ## Troubleshooting
 
-If you encounter issues:
+If you encounter any issues:
 
-1. Check if the containers are running:
+1. Check if the ports 8000 and 5001 are available on your system
+2. Ensure the CSV file exists in the correct location
+3. Check the container logs:
    ```bash
-   docker-compose ps
+   ./docker/docker-dev.sh logs
+   ```
+   or
+   ```bash
+   docker-compose -f docker/docker-compose.yml logs
    ```
 
-2. Check container logs for errors:
-   ```bash
-   docker-compose logs
-   ```
+## Development
 
-3. Ensure no other services are using ports 5001 and 8000
-
-4. Rebuild the containers if needed:
-   ```bash
-   docker-compose build --no-cache
-   docker-compose up -d
-   ```
+For development purposes, you can use the `dev.sh` script instead of Docker. The Docker setup is primarily intended for production deployment. 

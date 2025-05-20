@@ -1,43 +1,22 @@
 version: '3.8'
-name: absence-calculator
 
 services:
   backend:
     build:
       context: ..
-      dockerfile: docker/backend.Dockerfile
-    container_name: absence-calculator-backend
+      dockerfile: docker/backend/Dockerfile
     ports:
       - "5001:5001"
     volumes:
-      - ../server/data:/app/data
+      - ../server/data:/app/server/data
     environment:
-      - CSV_FILE_PATH=/app/data/absence_periods.csv
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5001/api/absence-periods"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      - CSV_FILE_PATH=/app/server/data/absence_periods.csv
 
   frontend:
     build:
       context: ..
-      dockerfile: docker/frontend.Dockerfile
-    container_name: absence-calculator-frontend
+      dockerfile: docker/frontend/Dockerfile
     ports:
-      - "8000:80"
+      - "8000:8000"
     depends_on:
       - backend
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
-volumes:
-  data:
-    driver: local

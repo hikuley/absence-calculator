@@ -20,6 +20,7 @@ This guide explains how to deploy the 180-Day Rule Calculator application using 
 │   ├── docker-dev.sh
 │   └── README.md
 ├── server/
+│   ├── requirements.txt
 │   └── data/
 │       └── absence_periods.csv
 └── frontend/
@@ -50,8 +51,9 @@ chmod +x docker/docker-dev.sh
 
 If you prefer to run Docker commands directly:
 
-1. Make sure you have the required CSV file in place:
+1. Make sure you have the required files in place:
    ```
+   server/requirements.txt
    server/data/absence_periods.csv
    ```
 
@@ -84,7 +86,9 @@ The CSV file is mounted as a volume, so any changes made to the data will persis
 If you encounter any issues:
 
 1. Check if the ports 8000 and 5001 are available on your system
-2. Ensure the CSV file exists in the correct location
+2. Ensure the required files exist in the correct locations:
+   - `server/requirements.txt`
+   - `server/data/absence_periods.csv`
 3. Check the container logs:
    ```bash
    ./docker/docker-dev.sh logs

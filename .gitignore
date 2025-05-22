@@ -48,3 +48,6 @@ Thumbs.db
 
 # Server PID files
 .server_pids*
+
+# Database files
+.postgres_data

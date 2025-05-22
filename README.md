@@ -1,10 +1,32 @@
-# 180-Day Rule Calculator
+# Absence Calculator
 
-A Python-based web application for calculating compliance with the UK's 180-day residency rule.
+A comprehensive application for calculating compliance with the UK's 180-day residency rule, with multiple deployment options.
 
-## Quick Development Setup
+## Overview
 
-This project includes a convenient development script (`dev.sh`) that simplifies running the application:
+This application helps users track their absence periods from the UK and calculate whether they comply with the 180-day rule for residency applications. The rule states that applicants must not have spent more than 180 days outside the UK in any 12-month period during the 5-year qualifying period.
+
+## Features
+
+- Add, update, and remove absence periods with start and end dates
+- Calculate compliance with the 180-day rule based on a decision date
+- View detailed results including:
+  - Total days absent in the qualifying period
+  - Worst 12-month period with the highest number of absence days
+  - Detailed breakdown of all rolling 12-month periods
+- CSV file storage for persistence of absence periods
+- Modal view for displaying all 12-month periods
+- Visual chart displaying absence days over a 5-year period
+- Multiple deployment options:
+  - Standard development setup
+  - Docker containerized deployment
+  - Kubernetes deployment for production environments
+
+## Deployment Options
+
+### 1. Standard Development Setup
+
+For local development with Python and a simple HTTP server.
 
 ```bash
 # Start both frontend and backend servers
@@ -21,35 +43,95 @@ The script automatically:
 - Starts the backend Flask server on port 5001
 - Starts a frontend HTTP server on port 8000
 - Opens your default browser to http://localhost:8000
-- Provides proper error handling and process management
 
-## Overview
+### 2. Docker Deployment
 
-This application helps users track their absence periods from the UK and calculate whether they comply with the 180-day rule for residency applications. The rule states that applicants must not have spent more than 180 days outside the UK in any 12-month period during the 5-year qualifying period.
+For containerized deployment using Docker and Docker Compose.
 
-## Features
+```bash
+# Make the script executable (first time only)
+chmod +x docker/docker-dev.sh
 
-- Add and remove absence periods with start and end dates
-- Calculate compliance with the 180-day rule based on a decision date
-- View detailed results including:
-  - Total days absent in the qualifying period
-  - Worst 12-month period with the highest number of absence days
-  - Detailed breakdown of all rolling 12-month periods
-- CSV file storage for persistence of absence periods
-- Modal view for displaying all 12-month periods
-- Visual chart displaying absence days over a 5-year period
-- Update functionality for existing absence periods
+# Deploy the application (build and start)
+./docker/docker-dev.sh deploy
+
+# Start the containers (if already built)
+./docker/docker-dev.sh start
+
+# Stop the containers
+./docker/docker-dev.sh stop
+
+# View container logs
+./docker/docker-dev.sh logs
+
+# Clean images and rebuild from scratch
+./docker/docker-dev.sh redeploy
+```
+
+Access the application at:
+- Frontend: http://localhost:8000
+- Backend API: http://localhost:5001/api
+
+### 3. Kubernetes Deployment
+
+For production-ready deployment using Kubernetes.
+
+```bash
+# Normal start (uses cached images if available)
+./k8s/dev.sh start
+
+# Force rebuild of Docker images from scratch
+./k8s/dev.sh start --rebuild
+
+# Check application status
+./k8s/dev.sh status
+
+# View application logs
+./k8s/dev.sh logs
+
+# Follow logs in real-time
+./k8s/dev.sh logs --follow
+
+# Stop the application
+./k8s/dev.sh stop
+```
+
+Access the application at:
+- Frontend: http://localhost:8080
+- Backend API: http://localhost:5001/api
 
 ## Project Structure
 
+```
+.
+├── absence_periods.csv       # CSV database for absence periods
+├── dev.sh                    # Development script for standard setup
+├── docker/                   # Docker deployment files
+│   ├── backend/              # Backend Dockerfile and config
+│   ├── frontend/             # Frontend Dockerfile and Nginx config
+│   ├── docker-compose.yml    # Docker Compose configuration
+│   ├── docker-dev.sh         # Docker management script
+│   └── README.md             # Docker-specific documentation
+├── frontend/                 # Frontend static files
+│   └── index.html            # Main HTML file
+├── k8s/                      # Kubernetes deployment files
+│   ├── backend/              # Backend K8s Dockerfile
+│   ├── frontend/             # Frontend K8s Dockerfile
+│   ├── backend-deployment.yaml  # Backend K8s deployment
+│   ├── frontend-deployment.yaml # Frontend K8s deployment
+│   ├── configmap.yaml        # Environment variables
+│   ├── pvc.yaml              # Persistent volume claim
+│   ├── ingress.yaml          # Ingress configuration
+│   ├── dev.sh                # K8s deployment script
+│   ├── monitor.sh            # Deployment monitoring script
+│   └── README.md             # K8s-specific documentation
+└── server/                   # Backend server files
+    ├── app.py                # Flask application
+    ├── update_csv.py         # CSV update utility
+    └── requirements.txt      # Python dependencies
+```
 
-- `server/app.py`: Flask backend server with the 180-day rule calculation logic
-- `server/update_csv.py`: Utility script to update the CSV file with data from the original source
-- `server/requirements.txt`: Python dependencies
-- `index.html`: Standalone HTML/JavaScript frontend for the application
-- `absence_periods.csv`: CSV file used as a database to store absence periods
-
-## Quick Start Guide
+## Standard Setup Instructions
 
 ### Prerequisites
 
@@ -83,35 +165,80 @@ This application helps users track their absence periods from the UK and calcula
    pip install -r requirements.txt
    ```
 
-### Step 2: Start the Backend Server
+### Step 2: Start the Application
 
-1. From the project root directory, with the virtual environment activated, run:
+Use the development script for simplicity:
+```bash
+./dev.sh start
+```
+
+Or manually:
+1. Start the backend server:
    ```bash
    cd server
    python app.py
    ```
 
-2. You should see output indicating that the Flask server is running on http://localhost:5001
-
-### Step 3: Start the Frontend Server
-
-1. Open a new terminal window and navigate to the project directory
-
-2. Start a simple HTTP server to serve the HTML file:
+2. In another terminal, start the frontend server:
    ```bash
    python3 -m http.server 8000
    ```
 
-3. You should see output indicating that the server is running on port 8000
+3. Open your browser to http://localhost:8000
 
-### Step 4: Access the Application
+## Docker Deployment Instructions
 
-1. Open your web browser and navigate to:
+### Prerequisites
+
+- Docker installed on your system
+- Docker Compose installed on your system
+
+### Deployment Steps
+
+1. Use the provided script:
+   ```bash
+   ./docker/docker-dev.sh deploy
    ```
-   http://localhost:8000
+
+2. Access the application at http://localhost:8000
+
+### Data Persistence
+
+The CSV file is mounted as a volume, so any changes made to the data will persist even after container restarts.
+
+## Kubernetes Deployment Instructions
+
+### Prerequisites
+
+- Docker
+- Minikube or another Kubernetes cluster
+- kubectl
+- Bash shell
+
+### Deployment Steps
+
+1. Start the application:
+   ```bash
+   ./k8s/dev.sh start
    ```
 
-2. The 180-Day Rule Calculator interface should load, showing any existing absence periods and calculation results
+2. Check the deployment status:
+   ```bash
+   ./k8s/dev.sh status
+   ```
+
+3. Access the application at:
+   - Frontend: http://localhost:8080
+   - Backend API: http://localhost:5001/api
+
+### Kubernetes Features
+
+- Dedicated namespace for isolation
+- Health check probes (readiness, liveness, startup)
+- Persistent volume for data storage
+- ConfigMap for environment variables
+- Horizontal Pod Autoscalers for scalability
+- Monitoring script for deployment status
 
 ## Using the Application
 
@@ -156,13 +283,6 @@ The backend provides the following RESTful API endpoints:
 - `DELETE /api/absence-periods/<id>`: Delete an absence period
 - `POST /api/calculate`: Calculate the 180-day rule compliance
 
-## Data Storage
-
-The application uses a CSV file (`absence_periods.csv`) to store absence periods with the following structure:
-- `id`: Unique identifier for each absence period
-- `start_date`: The date when the person left the UK (not counted as absence)
-- `end_date`: The date when the person returned to the UK (not counted as absence)
-
 ## Calculation Logic
 
 The application implements the following logic for the 180-day rule calculation:
@@ -171,20 +291,9 @@ The application implements the following logic for the 180-day rule calculation:
 3. Identifies the worst 12-month period with the highest number of absence days
 4. Determines compliance based on whether you've spent more than 180 days outside the UK in any 12-month period
 
-## Updating the CSV Data
-
-If you want to import data from another CSV file, you can use the `update_csv.py` script:
-
-```bash
-cd server
-python update_csv.py
-```
-
-This script will copy data from `home_task/absence_periods.csv` to the root `absence_periods.csv` file, adding random UUIDs for each entry.
-
 ## Troubleshooting
 
-### Server Port Already in Use
+### Standard Setup Issues
 
 If you see an error like "Address already in use" when starting the Flask server:
 
@@ -198,7 +307,33 @@ If you see an error like "Address already in use" when starting the Flask server
    kill -9 <PID>
    ```
 
-3. Try starting the server again
+### Docker Issues
+
+1. Check if the ports 8000 and 5001 are available on your system
+2. Ensure the required files exist in the correct locations
+3. Check the container logs:
+   ```bash
+   ./docker/docker-dev.sh logs
+   ```
+
+### Kubernetes Issues
+
+1. Check pod status:
+   ```bash
+   kubectl get pods
+   ```
+
+2. View detailed pod information:
+   ```bash
+   kubectl describe pod <pod-name>
+   ```
+
+3. Check application logs:
+   ```bash
+   ./k8s/dev.sh logs
+   ```
+
+4. For port forwarding issues, verify if ports 8080 and 5001 are available
 
 ### CORS Issues
 

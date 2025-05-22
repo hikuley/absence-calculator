@@ -1,26 +1,44 @@
 # Absence Calculator
 
-A comprehensive application for calculating compliance with the UK's 180-day residency rule, with multiple deployment options.
+A comprehensive application for calculating compliance with the UK's 180-day residency rule, with multiple deployment options and PostgreSQL database integration.
 
 ## Overview
 
 This application helps users track their absence periods from the UK and calculate whether they comply with the 180-day rule for residency applications. The rule states that applicants must not have spent more than 180 days outside the UK in any 12-month period during the 5-year qualifying period.
 
+The application now features a robust PostgreSQL database backend for reliable data persistence, replacing the previous CSV-based storage system while maintaining backward compatibility.
+
 ## Features
 
+### Core Functionality
 - Add, update, and remove absence periods with start and end dates
 - Calculate compliance with the 180-day rule based on a decision date
 - View detailed results including:
   - Total days absent in the qualifying period
   - Worst 12-month period with the highest number of absence days
   - Detailed breakdown of all rolling 12-month periods
-- PostgreSQL database storage for persistence of absence periods
 - Modal view for displaying all 12-month periods
 - Visual chart displaying absence days over a 5-year period
-- Multiple deployment options:
-  - Standard development setup
-  - Docker containerized deployment
-  - Kubernetes deployment for production environments
+
+### Database Integration
+- PostgreSQL database storage for reliable data persistence
+- Automatic migration of data from CSV to PostgreSQL
+- SQLAlchemy ORM for database interactions
+- Alembic for database migrations and schema management
+- Backward compatibility with CSV data format
+
+### Deployment Options
+- Standard development setup with PostgreSQL integration
+- Docker containerized deployment with multi-container orchestration
+- Kubernetes deployment for production environments
+- Comprehensive deployment scripts for each environment
+
+### DevOps Features
+- Automated database backup and restore functionality
+- Health check endpoints for monitoring
+- Container health probes for reliability
+- Persistent volume storage for data durability
+- Logging and monitoring capabilities
 
 ## Deployment Options
 
@@ -31,33 +49,42 @@ For local development with Python, PostgreSQL, and a simple HTTP server.
 #### Prerequisites
 
 - Python 3.9+
-- PostgreSQL 15+
-- Node.js (for frontend development)
+- Docker (for PostgreSQL container)
+- Web browser
 
-#### Database Setup
+#### Features
 
-1. Install PostgreSQL if not already installed
-2. Create a database named `absence_calculator`
-3. Run the database setup script:
-   ```bash
-   cd server
-   ./setup_db.sh
-   ```
-   This will create the necessary tables and migrate data from the CSV file if it exists.
+- Automatic virtual environment setup and dependency installation
+- PostgreSQL container management (start, stop, status)
+- Automatic data migration from CSV to PostgreSQL
+- Integrated logging for all components
+
+#### Usage
 
 ```bash
-# Start both frontend and backend servers
+# Start PostgreSQL, backend, and frontend servers
 ./dev.sh start
 
 # Stop all running servers
 ./dev.sh stop
 
-# Restart the servers (stop and then start)
+# Restart all servers
 ./dev.sh restart
+
+# View logs from all components
+./dev.sh logs
+
+# Run database migration manually
+./dev.sh migrate
+
+# Check PostgreSQL status
+./dev.sh pg-status
 ```
 
 The script automatically:
-- Starts the backend Flask server on port 5001
+- Starts a PostgreSQL container for data storage
+- Creates database tables and migrates data from CSV
+- Starts the backend FastAPI server on port 5001
 - Starts a frontend HTTP server on port 8000
 - Opens your default browser to http://localhost:8000
 
@@ -130,87 +157,114 @@ Access the application at:
 
 ```
 .
-├── absence_periods.csv       # CSV database for absence periods
-├── dev.sh                    # Development script for standard setup
+├── absence_periods.csv       # CSV database for absence periods (legacy format)
+├── dev.sh                    # Development script for standard setup with PostgreSQL
 ├── docker/                   # Docker deployment files
 │   ├── backend/              # Backend Dockerfile and config
+│   │   └── Dockerfile        # Backend Docker configuration with PostgreSQL support
 │   ├── frontend/             # Frontend Dockerfile and Nginx config
-│   ├── docker-compose.yml    # Docker Compose configuration
+│   ├── docker-compose.yml    # Docker Compose configuration with PostgreSQL service
 │   ├── docker-dev.sh         # Docker management script
 │   └── README.md             # Docker-specific documentation
 ├── frontend/                 # Frontend static files
-│   └── index.html            # Main HTML file
+│   ├── index.html            # Main HTML file
+│   ├── css/                  # CSS stylesheets
+│   └── js/                   # JavaScript files
 ├── k8s/                      # Kubernetes deployment files
 │   ├── backend/              # Backend K8s Dockerfile
 │   ├── frontend/             # Frontend K8s Dockerfile
 │   ├── backend-deployment.yaml  # Backend K8s deployment
 │   ├── frontend-deployment.yaml # Frontend K8s deployment
+│   ├── postgres-deployment.yaml # PostgreSQL K8s deployment
 │   ├── configmap.yaml        # Environment variables
-│   ├── pvc.yaml              # Persistent volume claim
-│   ├── ingress.yaml          # Ingress configuration
+│   ├── pvc.yaml              # Persistent volume claim for PostgreSQL
 │   ├── dev.sh                # K8s deployment script
-│   ├── monitor.sh            # Deployment monitoring script
+│   ├── db-tools.sh           # Database management tools for K8s
 │   └── README.md             # K8s-specific documentation
-└── server/                   # Backend server files
-    ├── app.py                # Flask application
-    ├── update_csv.py         # CSV update utility
-    └── requirements.txt      # Python dependencies
+├── server/                   # Backend server files
+│   ├── app.py                # FastAPI application
+│   ├── database.py           # Database connection and configuration
+│   ├── models.py             # SQLAlchemy models for database tables
+│   ├── migrate_csv_to_db.py  # Data migration utility
+│   ├── data/                 # Data directory for CSV files
+│   │   └── absence_periods.csv # Sample absence periods data
+│   ├── alembic/              # Database migration scripts
+│   │   ├── versions/         # Migration version files
+│   │   └── env.py            # Alembic environment configuration
+│   └── requirements.txt      # Python dependencies including PostgreSQL
+└── .postgres_data/          # Local PostgreSQL data directory (created by dev.sh)
 ```
 
 ## Standard Setup Instructions
 
 ### Prerequisites
 
-- Python 3.6 or higher
+- Python 3.9 or higher
+- Docker (for PostgreSQL container)
 - Web browser (Chrome, Firefox, Safari, etc.)
 
-### Step 1: Set Up the Python Environment
+### Step 1: Clone the Repository
 
-1. Clone or download this repository to your local machine
-
-2. Open a terminal and navigate to the project directory
-
-3. Create a virtual environment:
-   ```bash
-   python3 -m venv venv
-   ```
-
-4. Activate the virtual environment:
-   - On macOS/Linux:
-     ```bash
-     source venv/bin/activate
-     ```
-   - On Windows:
-     ```bash
-     venv\Scripts\activate
-     ```
-
-5. Install the required dependencies:
-   ```bash
-   cd server
-   pip install -r requirements.txt
-   ```
+```bash
+git clone <repository-url>
+cd absence-calculator
+```
 
 ### Step 2: Start the Application
 
-Use the development script for simplicity:
+The enhanced development script handles everything automatically:
+
 ```bash
 ./dev.sh start
 ```
 
-Or manually:
-1. Start the backend server:
-   ```bash
-   cd server
-   python app.py
-   ```
+This will:
+1. Set up a Python virtual environment if needed
+2. Install all required dependencies including PostgreSQL packages
+3. Start a PostgreSQL container
+4. Create database tables and migrate data from CSV
+5. Start the backend server
+6. Start the frontend server
+7. Open your browser to http://localhost:8000
 
-2. In another terminal, start the frontend server:
-   ```bash
-   python3 -m http.server 8000
-   ```
+### Step 3: Using the Application
 
-3. Open your browser to http://localhost:8000
+1. Add absence periods using the form
+2. Set a decision date
+3. Calculate compliance with the 180-day rule
+4. View detailed results and visualizations
+
+### Step 4: Stopping the Application
+
+```bash
+./dev.sh stop
+```
+
+This will stop all components including the PostgreSQL container.
+
+### Advanced Usage
+
+#### Database Migration
+
+To manually migrate data from CSV to PostgreSQL:
+
+```bash
+./dev.sh migrate
+```
+
+#### Viewing Logs
+
+To view logs from all components:
+
+```bash
+./dev.sh logs
+```
+
+#### Checking PostgreSQL Status
+
+```bash
+./dev.sh pg-status
+```
 
 ## Docker Deployment Instructions
 
@@ -230,7 +284,15 @@ Or manually:
 
 ### Data Persistence
 
-The CSV file is mounted as a volume, so any changes made to the data will persist even after container restarts.
+The application now uses PostgreSQL for data persistence with the following features:
+
+- PostgreSQL database for reliable data storage
+- Automatic data migration from CSV to PostgreSQL
+- Persistent volume storage in Docker and Kubernetes
+- Backward compatibility with CSV data format
+- Database backup and restore capabilities
+
+In the Docker setup, PostgreSQL data is stored in a named volume. In Kubernetes, a PersistentVolumeClaim is used for data storage. In the standard setup, data is stored in a local directory managed by the Docker container.
 
 ## Kubernetes Deployment Instructions
 
@@ -259,12 +321,16 @@ The CSV file is mounted as a volume, so any changes made to the data will persis
 
 ### Kubernetes Features
 
+- PostgreSQL deployment with persistent storage
+- Database migration and initialization on startup
 - Dedicated namespace for isolation
 - Health check probes (readiness, liveness, startup)
-- Persistent volume for data storage
+- Persistent volume claims for data storage
 - ConfigMap for environment variables
 - Horizontal Pod Autoscalers for scalability
 - Monitoring script for deployment status
+- Database management tools (backup, restore, migrate, shell)
+- Improved port forwarding mechanism
 
 ## Using the Application
 
@@ -273,7 +339,8 @@ The CSV file is mounted as a volume, so any changes made to the data will persis
 1. In the left panel, enter a start date (when you left the UK)
 2. Enter an end date (when you returned to the UK)
 3. Click the "Add Period" button
-4. The period will be added to the list below and saved to the CSV file
+4. The period will be added to the list below and saved to the PostgreSQL database
+5. Changes are persisted even if the application is restarted
 
 ### Setting the Decision Date
 
@@ -298,7 +365,8 @@ The CSV file is mounted as a volume, so any changes made to the data will persis
 ### Deleting Absence Periods
 
 1. In the absence periods list, click the "Delete" button next to the period you want to remove
-2. The period will be removed from both the UI and the CSV file
+2. The period will be removed from both the UI and the PostgreSQL database
+3. Changes are immediately persisted to ensure data consistency
 
 ## API Endpoints
 

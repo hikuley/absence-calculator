@@ -2,9 +2,10 @@
 
 # Shell script to run and stop the 180-Day Rule Calculator servers
 # Usage: 
-#   ./dev.sh start  - Start both backend and frontend servers
-#   ./dev.sh restart - Restart both backend and frontend servers
-#   ./dev.sh stop - Stop both servers
+#   ./dev.sh start  - Start PostgreSQL, backend and frontend servers
+#   ./dev.sh restart - Restart all servers
+#   ./dev.sh stop - Stop all servers
+#   ./dev.sh migrate - Run database migration from CSV to PostgreSQL
 
 # Configuration
 BACKEND_PORT=5001
@@ -17,7 +18,16 @@ PID_FILE="$PROJECT_DIR/.server_pids"
 LOGS_DIR="$PROJECT_DIR/logs"
 BACKEND_LOG="$LOGS_DIR/backend.log"
 FRONTEND_LOG="$LOGS_DIR/frontend.log"
+PG_LOG="$LOGS_DIR/postgres.log"
 CSV_FILE_PATH="$PROJECT_DIR/server/data/absence_periods.csv"
+
+# PostgreSQL configuration
+PG_CONTAINER_NAME="absence-calculator-db"
+PG_PORT=5432
+PG_USER="postgres"
+PG_PASSWORD="postgres"
+PG_DB="absence_calculator"
+PG_DATA_DIR="$PROJECT_DIR/.postgres_data"
 
 # Function to check if a port is in use
 is_port_in_use() {
@@ -25,16 +35,131 @@ is_port_in_use() {
     return $?
 }
 
-# Function to check if the virtual environment exists
-check_venv() {
-    if [ ! -f "$VENV_ACTIVATE" ]; then
-        echo "Virtual environment not found at $VENV_DIR"
-        echo "Please set up the virtual environment first:"
-        echo "python3 -m venv $VENV_DIR"
-        echo "source $VENV_ACTIVATE"
-        echo "pip install fastapi uvicorn pydantic python-dateutil"
+# Function to check if Docker is installed and running
+check_docker() {
+    if ! command -v docker &> /dev/null; then
+        echo "Docker is not installed. Please install Docker first."
         exit 1
     fi
+    
+    if ! docker info &> /dev/null; then
+        echo "Docker daemon is not running. Please start Docker first."
+        exit 1
+    fi
+}
+
+# Function to check if the virtual environment exists and install required packages
+check_venv() {
+    # Check if virtual environment exists
+    if [ ! -f "$VENV_ACTIVATE" ]; then
+        echo "Virtual environment not found at $VENV_DIR"
+        echo "Creating virtual environment..."
+        python3 -m venv "$VENV_DIR"
+    fi
+    
+    # Activate virtual environment
+    source "$VENV_ACTIVATE"
+    
+    # Install required packages
+    echo "Checking and installing required packages..."
+    pip install --quiet fastapi uvicorn pydantic python-dateutil
+    
+    # Install PostgreSQL dependencies
+    echo "Installing PostgreSQL dependencies..."
+    pip install --quiet sqlalchemy psycopg2-binary alembic python-dotenv
+    
+    # Check if installation was successful
+    if ! python -c "import sqlalchemy" &>/dev/null; then
+        echo "Error: Failed to install SQLAlchemy. Please install it manually:"
+        echo "source $VENV_ACTIVATE"
+        echo "pip install sqlalchemy psycopg2-binary alembic python-dotenv"
+        exit 1
+    fi
+    
+    echo "All required packages are installed."
+}
+
+# Function to start PostgreSQL container
+start_postgres() {
+    echo "Starting PostgreSQL container..."
+    
+    # Check if PostgreSQL container is already running
+    if docker ps | grep -q "$PG_CONTAINER_NAME"; then
+        echo "PostgreSQL container is already running."
+        return 0
+    fi
+    
+    # Check if the container exists but is stopped
+    if docker ps -a | grep -q "$PG_CONTAINER_NAME"; then
+        echo "Starting existing PostgreSQL container..."
+        docker start "$PG_CONTAINER_NAME" > /dev/null
+    else
+        echo "Creating and starting new PostgreSQL container..."
+        
+        # Create data directory if it doesn't exist
+        mkdir -p "$PG_DATA_DIR"
+        
+        # Run PostgreSQL container
+        docker run -d \
+            --name "$PG_CONTAINER_NAME" \
+            -e POSTGRES_USER="$PG_USER" \
+            -e POSTGRES_PASSWORD="$PG_PASSWORD" \
+            -e POSTGRES_DB="$PG_DB" \
+            -p "$PG_PORT:5432" \
+            -v "$PG_DATA_DIR:/var/lib/postgresql/data" \
+            postgres:15 > /dev/null
+    fi
+    
+    # Wait for PostgreSQL to start
+    echo "Waiting for PostgreSQL to start..."
+    for i in {1..30}; do
+        if docker exec "$PG_CONTAINER_NAME" pg_isready -U "$PG_USER" &> /dev/null; then
+            echo "PostgreSQL is ready!"
+            return 0
+        fi
+        echo -n "."
+        sleep 1
+    done
+    
+    echo "\nError: PostgreSQL failed to start within 30 seconds."
+    return 1
+}
+
+# Function to run database migration
+run_migration() {
+    echo "Running database migration from CSV to PostgreSQL..."
+    
+    # Create logs directory if it doesn't exist
+    mkdir -p "$LOGS_DIR"
+    
+    # Set environment variables for database connection
+    export DB_USER="$PG_USER"
+    export DB_PASSWORD="$PG_PASSWORD"
+    export DB_HOST="localhost"
+    export DB_PORT="$PG_PORT"
+    export DB_NAME="$PG_DB"
+    export CSV_FILE_PATH="$CSV_FILE_PATH"
+    
+    # Run migration script
+    source "$VENV_ACTIVATE"
+    cd "$SERVER_DIR" || exit 1
+    
+    # Create database tables
+    echo "Creating database tables..."
+    if ! python -c "from database import Base, engine; Base.metadata.create_all(bind=engine)"; then
+        echo "Error: Failed to create database tables. Check database connection settings."
+        return 1
+    fi
+    
+    # Run migration script
+    echo "Migrating data from CSV to PostgreSQL..."
+    if ! python migrate_csv_to_db.py; then
+        echo "Error: Failed to migrate data from CSV to PostgreSQL."
+        return 1
+    fi
+    
+    echo "Database migration completed successfully."
+    return 0
 }
 
 # Function to start the backend server
@@ -51,10 +176,18 @@ start_backend() {
     # Create logs directory if it doesn't exist
     mkdir -p "$LOGS_DIR"
     
+    # Set environment variables for database connection
+    export DB_USER="$PG_USER"
+    export DB_PASSWORD="$PG_PASSWORD"
+    export DB_HOST="localhost"
+    export DB_PORT="$PG_PORT"
+    export DB_NAME="$PG_DB"
+    export CSV_FILE_PATH="$CSV_FILE_PATH"
+    
     # Start the FastAPI server with Uvicorn
     source "$VENV_ACTIVATE"
     cd "$SERVER_DIR" || exit 1
-    CSV_FILE_PATH="$CSV_FILE_PATH" uvicorn app:app --host 0.0.0.0 --port $BACKEND_PORT --reload > "$BACKEND_LOG" 2>&1 &
+    uvicorn app:app --host 0.0.0.0 --port $BACKEND_PORT --reload > "$BACKEND_LOG" 2>&1 &
     BACKEND_PID=$!
     
     echo "Backend server started with PID: $BACKEND_PID"
@@ -120,7 +253,7 @@ view_logs() {
     if [ ! -d "$LOGS_DIR" ]; then
         echo "Logs directory not found. Have you started the servers?"
         mkdir -p "$LOGS_DIR"
-        touch "$BACKEND_LOG" "$FRONTEND_LOG"
+        touch "$BACKEND_LOG" "$FRONTEND_LOG" "$PG_LOG"
     fi
     
     # Check if log files exist
@@ -134,10 +267,24 @@ view_logs() {
         touch "$FRONTEND_LOG"
     fi
     
+    if [ ! -f "$PG_LOG" ]; then
+        echo "PostgreSQL log file not found. Creating empty file."
+        touch "$PG_LOG"
+    fi
+    
+    # Get PostgreSQL logs if container is running
+    if docker ps | grep -q "$PG_CONTAINER_NAME"; then
+        echo "Fetching PostgreSQL logs..."
+        docker logs "$PG_CONTAINER_NAME" > "$PG_LOG" 2>&1
+    fi
+    
     # Display logs side by side if possible, otherwise use tail -f
     if command -v tmux &> /dev/null; then
         echo "Using tmux to display logs side by side. Press Ctrl+B then D to detach."
-        tmux new-session "echo 'BACKEND LOG:'; echo '------------'; tail -f $BACKEND_LOG" \; split-window "echo 'FRONTEND LOG:'; echo '-------------'; tail -f $FRONTEND_LOG" \; select-layout even-vertical
+        tmux new-session "echo 'BACKEND LOG:'; echo '------------'; tail -f $BACKEND_LOG" \
+            \; split-window "echo 'FRONTEND LOG:'; echo '-------------'; tail -f $FRONTEND_LOG" \
+            \; split-window "echo 'POSTGRESQL LOG:'; echo '---------------'; tail -f $PG_LOG" \
+            \; select-layout even-vertical
     else
         echo "BACKEND LOG:"
         echo "------------"
@@ -148,15 +295,33 @@ view_logs() {
         echo "-------------"
         tail -f "$FRONTEND_LOG" & FRONTEND_TAIL_PID=$!
         
+        echo ""
+        echo "POSTGRESQL LOG:"
+        echo "---------------"
+        tail -f "$PG_LOG" & PG_TAIL_PID=$!
+        
         # Wait for user to press Ctrl+C
-        trap "kill $BACKEND_TAIL_PID $FRONTEND_TAIL_PID 2>/dev/null; exit" INT
+        trap "kill $BACKEND_TAIL_PID $FRONTEND_TAIL_PID $PG_TAIL_PID 2>/dev/null; exit" INT
         wait
     fi
 }
 
-# Function to stop the servers
+# Function to stop PostgreSQL container
+stop_postgres() {
+    echo "Stopping PostgreSQL container..."
+    
+    # Check if PostgreSQL container is running
+    if docker ps | grep -q "$PG_CONTAINER_NAME"; then
+        echo "Stopping PostgreSQL container..."
+        docker stop "$PG_CONTAINER_NAME" > /dev/null
+    else
+        echo "PostgreSQL container is not running."
+    fi
+}
+
+# Function to stop all servers
 stop_servers() {
-    echo "Stopping servers..."
+    echo "Stopping all servers..."
     
     # Stop backend server
     if [ -f "$PID_FILE.backend" ]; then
@@ -193,7 +358,29 @@ stop_servers() {
         lsof -ti :"$FRONTEND_PORT" | xargs kill -9 2>/dev/null
     fi
     
+    # Stop PostgreSQL container
+    stop_postgres
+    
     echo "All servers stopped."
+}
+
+# Function to check PostgreSQL status
+check_postgres_status() {
+    echo "Checking PostgreSQL status..."
+    
+    if docker ps | grep -q "$PG_CONTAINER_NAME"; then
+        echo "PostgreSQL container is running."
+        if docker exec "$PG_CONTAINER_NAME" pg_isready -U "$PG_USER" &> /dev/null; then
+            echo "PostgreSQL server is accepting connections."
+            return 0
+        else
+            echo "PostgreSQL container is running but not accepting connections."
+            return 1
+        fi
+    else
+        echo "PostgreSQL container is not running."
+        return 1
+    fi
 }
 
 # Main script execution
@@ -203,33 +390,53 @@ case "$1" in
         # First stop any existing servers
         stop_servers
         
-        # Then start new servers
+        # Check requirements
         check_venv
+        check_docker
+        
+        # Start PostgreSQL
+        start_postgres || exit 1
+        
+        # Run migration
+        run_migration
+        
+        # Start application servers
         start_backend
         start_frontend
         open_browser
         
         echo ""
-        echo "180-Day Rule Calculator is now running!"
+        echo "180-Day Rule Calculator is now running with PostgreSQL!"
+        echo "PostgreSQL: localhost:$PG_PORT (container: $PG_CONTAINER_NAME)"
         echo "Backend server: http://localhost:$BACKEND_PORT"
         echo "Frontend interface: http://localhost:$FRONTEND_PORT"
-        echo "Use './dev.sh stop' to stop the servers."
+        echo "Use './dev.sh stop' to stop all servers."
         ;;
     restart)
         # Stop any existing servers
         stop_servers
         
-        # Then start new servers
+        # Check requirements
         check_venv
+        check_docker
+        
+        # Start PostgreSQL
+        start_postgres || exit 1
+        
+        # Run migration
+        run_migration
+        
+        # Start application servers
         start_backend
         start_frontend
         open_browser
         
         echo ""
-        echo "180-Day Rule Calculator has been restarted!"
+        echo "180-Day Rule Calculator has been restarted with PostgreSQL!"
+        echo "PostgreSQL: localhost:$PG_PORT (container: $PG_CONTAINER_NAME)"
         echo "Backend server: http://localhost:$BACKEND_PORT"
         echo "Frontend interface: http://localhost:$FRONTEND_PORT"
-        echo "Use './dev.sh stop' to stop the servers."
+        echo "Use './dev.sh stop' to stop all servers."
         ;;
     stop)
         stop_servers
@@ -237,12 +444,23 @@ case "$1" in
     logs)
         view_logs
         ;;
+    migrate)
+        check_venv
+        check_docker
+        start_postgres || exit 1
+        run_migration
+        ;;
+    pg-status)
+        check_postgres_status
+        ;;
     *)
-        echo "Usage: $0 {start|restart|stop|logs}"
-        echo "  start   - Start both backend and frontend servers"
-        echo "  restart - Restart both backend and frontend servers"
-        echo "  stop    - Stop both servers"
-        echo "  logs    - View server logs (press Ctrl+C to exit)"
+        echo "Usage: $0 {start|restart|stop|logs|migrate|pg-status}"
+        echo "  start     - Start PostgreSQL, backend, and frontend servers"
+        echo "  restart   - Restart all servers"
+        echo "  stop      - Stop all servers"
+        echo "  logs      - View server logs (press Ctrl+C to exit)"
+        echo "  migrate   - Run database migration from CSV to PostgreSQL"
+        echo "  pg-status - Check PostgreSQL container status"
         exit 1
         ;;
 esac

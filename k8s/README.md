@@ -61,14 +61,35 @@ The `dev.sh` script handles the entire deployment process:
    - Supports `--rebuild` flag to force rebuild from scratch
 
 3. **Kubernetes Deployment**:
-   - Deploys backend service and deployment
+   - Deploys PostgreSQL database with persistent storage
+   - Deploys backend service and deployment with PostgreSQL integration
    - Deploys frontend service and deployment
-   - Waits for pods to be ready with detailed status
+   - Waits for all pods to be ready with detailed status
 
 4. **Port Forwarding**:
    - Sets up port forwarding for both services
    - Runs in the background for persistent access
    - Logs are stored in `/tmp/absence-calculator/`
+
+## Database Management
+
+The application now uses PostgreSQL for data persistence instead of CSV files. A dedicated database management script is provided:
+
+```bash
+# Backup the PostgreSQL database
+./k8s/db-tools.sh backup
+
+# Restore the PostgreSQL database from a backup
+./k8s/db-tools.sh restore
+
+# Manually migrate data from CSV to PostgreSQL
+./k8s/db-tools.sh migrate
+
+# Open a PostgreSQL shell for direct database access
+./k8s/db-tools.sh shell
+```
+
+Backups are stored in the `k8s/backups/` directory with timestamps.
 
 ## Troubleshooting
 
@@ -94,6 +115,18 @@ This will show:
 ### Check Pod Status
 ```bash
 kubectl get pods
+```
+
+### Check PostgreSQL Status
+```bash
+# Check if PostgreSQL pod is running
+kubectl get pods -l app=postgres
+
+# View PostgreSQL logs
+kubectl logs -l app=postgres
+
+# Check PostgreSQL persistent volume
+kubectl get pvc
 ```
 
 ### Check Services

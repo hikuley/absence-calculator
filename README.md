@@ -14,7 +14,7 @@ This application helps users track their absence periods from the UK and calcula
   - Total days absent in the qualifying period
   - Worst 12-month period with the highest number of absence days
   - Detailed breakdown of all rolling 12-month periods
-- CSV file storage for persistence of absence periods
+- PostgreSQL database storage for persistence of absence periods
 - Modal view for displaying all 12-month periods
 - Visual chart displaying absence days over a 5-year period
 - Multiple deployment options:
@@ -26,7 +26,24 @@ This application helps users track their absence periods from the UK and calcula
 
 ### 1. Standard Development Setup
 
-For local development with Python and a simple HTTP server.
+For local development with Python, PostgreSQL, and a simple HTTP server.
+
+#### Prerequisites
+
+- Python 3.9+
+- PostgreSQL 15+
+- Node.js (for frontend development)
+
+#### Database Setup
+
+1. Install PostgreSQL if not already installed
+2. Create a database named `absence_calculator`
+3. Run the database setup script:
+   ```bash
+   cd server
+   ./setup_db.sh
+   ```
+   This will create the necessary tables and migrate data from the CSV file if it exists.
 
 ```bash
 # Start both frontend and backend servers
@@ -46,7 +63,7 @@ The script automatically:
 
 ### 2. Docker Deployment
 
-For containerized deployment using Docker and Docker Compose.
+For containerized deployment using Docker and Docker Compose. This setup includes PostgreSQL database for data persistence.
 
 ```bash
 # Make the script executable (first time only)
@@ -68,13 +85,22 @@ chmod +x docker/docker-dev.sh
 ./docker/docker-dev.sh redeploy
 ```
 
+The Docker setup includes:
+- PostgreSQL database container for data persistence
+- Backend FastAPI service connected to PostgreSQL
+- Frontend Nginx server
+
 Access the application at:
 - Frontend: http://localhost:8000
 - Backend API: http://localhost:5001/api
 
+The first time the application starts, it will automatically:
+1. Create the necessary database tables
+2. Migrate any existing data from the CSV file to PostgreSQL
+
 ### 3. Kubernetes Deployment
 
-For production-ready deployment using Kubernetes.
+For production-ready deployment using Kubernetes. This setup includes PostgreSQL with persistent volume for data storage.
 
 ```bash
 # Normal start (uses cached images if available)

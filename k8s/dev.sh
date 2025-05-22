@@ -59,39 +59,105 @@ start_port_forwarding() {
     # Create PID file directory if it doesn't exist
     mkdir -p /tmp/absence-calculator
     
+    # Wait for pods to be fully ready before starting port forwarding
+    echo "Ensuring all pods are fully ready before starting port forwarding..."
+    sleep 10
+    
+    # Get pod names
+    FRONTEND_POD=$(kubectl get pods -l app=frontend -o jsonpath="{.items[0].metadata.name}")
+    BACKEND_POD=$(kubectl get pods -l app=backend -o jsonpath="{.items[0].metadata.name}")
+    
+    # Check if pods exist
+    if [ -z "$FRONTEND_POD" ] || [ -z "$BACKEND_POD" ]; then
+        echo "Error: Could not find frontend or backend pods"
+        return 1
+    fi
+    
     # Start frontend port forwarding in background
-    kubectl port-forward service/frontend 8000:8000 > /tmp/absence-calculator/frontend.log 2>&1 &
-    echo $! > /tmp/absence-calculator/frontend.pid
+    echo "Starting frontend port forwarding to pod $FRONTEND_POD..."
+    kubectl port-forward pod/$FRONTEND_POD 8000:8000 > /tmp/absence-calculator/frontend.log 2>&1 &
+    FRONTEND_PID=$!
+    echo $FRONTEND_PID > /tmp/absence-calculator/frontend.pid
     
-    # Start backend port forwarding in background
-    kubectl port-forward service/backend 5001:5001 > /tmp/absence-calculator/backend.log 2>&1 &
-    echo $! > /tmp/absence-calculator/backend.pid
+    # Wait a moment for frontend port forwarding to start
+    sleep 5
     
-    # Wait a moment for port forwarding to start
-    sleep 2
-    
-    # Check if port forwarding is working
-    if ! kill -0 $(cat /tmp/absence-calculator/frontend.pid) 2>/dev/null || ! kill -0 $(cat /tmp/absence-calculator/backend.pid) 2>/dev/null; then
-        echo "Error: Failed to start port forwarding"
+    # Check if frontend port forwarding is working
+    if ! kill -0 $FRONTEND_PID 2>/dev/null; then
+        echo "Error: Failed to start frontend port forwarding"
         stop_port_forwarding
         return 1
     fi
     
+    # Try alternative approach if direct pod forwarding fails
+    if ! curl -s http://localhost:8000 > /dev/null; then
+        echo "Warning: Frontend port forwarding not responding, trying service instead..."
+        kill $FRONTEND_PID 2>/dev/null
+        kubectl port-forward service/frontend 8000:8000 > /tmp/absence-calculator/frontend.log 2>&1 &
+        FRONTEND_PID=$!
+        echo $FRONTEND_PID > /tmp/absence-calculator/frontend.pid
+        sleep 5
+    fi
+    
+    # Start backend port forwarding in background
+    echo "Starting backend port forwarding to pod $BACKEND_POD..."
+    kubectl port-forward pod/$BACKEND_POD 5001:5001 > /tmp/absence-calculator/backend.log 2>&1 &
+    BACKEND_PID=$!
+    echo $BACKEND_PID > /tmp/absence-calculator/backend.pid
+    
+    # Wait a moment for backend port forwarding to start
+    sleep 5
+    
+    # Check if backend port forwarding is working
+    if ! kill -0 $BACKEND_PID 2>/dev/null; then
+        echo "Error: Failed to start backend port forwarding"
+        stop_port_forwarding
+        return 1
+    fi
+    
+    # Try alternative approach if direct pod forwarding fails
+    if ! curl -s http://localhost:5001/api/health > /dev/null; then
+        echo "Warning: Backend port forwarding not responding, trying service instead..."
+        kill $BACKEND_PID 2>/dev/null
+        kubectl port-forward service/backend 5001:5001 > /tmp/absence-calculator/backend.log 2>&1 &
+        BACKEND_PID=$!
+        echo $BACKEND_PID > /tmp/absence-calculator/backend.pid
+        sleep 5
+    fi
+    
     echo "Port forwarding started successfully"
+    echo "Frontend: http://localhost:8000"
+    echo "Backend API: http://localhost:5001/api"
     return 0
 }
 
 # Function to stop port forwarding
 stop_port_forwarding() {
     echo "Stopping port forwarding..."
+    
+    # Kill frontend port forwarding process if running
     if [ -f /tmp/absence-calculator/frontend.pid ]; then
-        kill $(cat /tmp/absence-calculator/frontend.pid) 2>/dev/null
-        rm /tmp/absence-calculator/frontend.pid
+        PID=$(cat /tmp/absence-calculator/frontend.pid 2>/dev/null)
+        if [ ! -z "$PID" ]; then
+            kill $PID 2>/dev/null || kill -9 $PID 2>/dev/null
+        fi
+        rm -f /tmp/absence-calculator/frontend.pid
     fi
+    
+    # Kill backend port forwarding process if running
     if [ -f /tmp/absence-calculator/backend.pid ]; then
-        kill $(cat /tmp/absence-calculator/backend.pid) 2>/dev/null
-        rm /tmp/absence-calculator/backend.pid
+        PID=$(cat /tmp/absence-calculator/backend.pid 2>/dev/null)
+        if [ ! -z "$PID" ]; then
+            kill $PID 2>/dev/null || kill -9 $PID 2>/dev/null
+        fi
+        rm -f /tmp/absence-calculator/backend.pid
     fi
+    
+    # Ensure all kubectl port-forward processes are stopped
+    pkill -f "kubectl port-forward" 2>/dev/null || true
+    
+    # Clean up log files
+    rm -f /tmp/absence-calculator/frontend.log /tmp/absence-calculator/backend.log
 }
 
 # Function to check application status
@@ -242,13 +308,22 @@ start() {
     echo "Cleaning up existing deployments..."
     kubectl delete -f k8s/backend-deployment.yaml 2>/dev/null
     kubectl delete -f k8s/frontend-deployment.yaml 2>/dev/null
+    kubectl delete -f k8s/postgres-deployment.yaml 2>/dev/null
 
     # Apply Kubernetes configurations
     echo "Applying Kubernetes configurations..."
+    kubectl apply -f k8s/postgres-deployment.yaml
+    echo "Waiting for PostgreSQL to be ready..."
+    sleep 5
     kubectl apply -f k8s/backend-deployment.yaml
     kubectl apply -f k8s/frontend-deployment.yaml
     
     # Wait for pods to be ready with detailed status
+    if ! wait_for_pods "postgres"; then
+        echo "Error: PostgreSQL pods failed to become ready"
+        exit 1
+    fi
+    
     if ! wait_for_pods "backend"; then
         echo "Error: Backend pods failed to become ready"
         exit 1
@@ -264,6 +339,9 @@ start() {
         echo "Error: Failed to start port forwarding"
         exit 1
     fi
+    
+    # Show PostgreSQL connection information
+    echo "PostgreSQL database is available inside the cluster at: postgres:5432"
 
     echo "Application is running in the background!"
     echo "Frontend: http://localhost:8000"
@@ -282,6 +360,7 @@ stop() {
     # Delete Kubernetes resources
     kubectl delete -f k8s/frontend-deployment.yaml 2>/dev/null
     kubectl delete -f k8s/backend-deployment.yaml 2>/dev/null
+    kubectl delete -f k8s/postgres-deployment.yaml 2>/dev/null
 
     # Stop minikube
     minikube stop

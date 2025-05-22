@@ -20,6 +20,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/api/health")
+def health_check():
+    return {"status": "healthy"}
+
 # Define the path to the CSV file
 CSV_FILE_PATH = os.environ.get('CSV_FILE_PATH', 'absence_periods.csv')
 print(f"CSV_FILE_PATH set to: {CSV_FILE_PATH}")

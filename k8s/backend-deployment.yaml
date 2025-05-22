@@ -18,17 +18,15 @@ spec:
         imagePullPolicy: Never
         ports:
         - containerPort: 5001
-        volumeMounts:
-        - name: data-volume
-          mountPath: /app/server/data
         env:
         - name: CSV_FILE_PATH
           value: /app/server/data/absence_periods.csv
-      volumes:
-      - name: data-volume
-        hostPath:
-          path: /server/data
-          type: DirectoryOrCreate
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 5001
+          initialDelaySeconds: 5
+          periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service

@@ -1,6 +1,11 @@
 # Logs
 logs/
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
 
 # Python
 __pycache__/
@@ -27,6 +32,9 @@ var/
 # Virtual Environment
 venv/
 ENV/
+.env
+.venv
+pyvenv.cfg
 
 # IDE files
 .idea/
@@ -45,9 +53,35 @@ Thumbs.db
 
 # Docker
 .dockerignore
+.docker/
+docker-compose.override.yml
 
 # Server PID files
 .server_pids*
+
+# Node.js
+node_modules/
+package-lock.json
+yarn.lock
+.npm
+
+# JWT and Database
+auth-demo/db.json
+*.db
+*.sqlite
+*.sqlite3
+
+# Coverage and testing
+coverage/
+.nyc_output
+.coverage
+htmlcov/
+
+# Temporary files
+.tmp/
+.temp/
+tmp/
+temp/
 
 # Database files
 .postgres_data

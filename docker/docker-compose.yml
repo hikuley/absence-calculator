@@ -28,7 +28,6 @@ services:
       - ../server/data:/app/server/data
       - ../server:/app/server
     environment:
-      - CSV_FILE_PATH=/app/server/data/absence_periods.csv
       - DB_USER=postgres
       - DB_PASSWORD=postgres
       - DB_HOST=postgres

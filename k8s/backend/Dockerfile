@@ -2,13 +2,24 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Install PostgreSQL client dependencies
-RUN apt-get update && apt-get install -y \
-    postgresql-client \
-    libpq-dev \
-    gcc \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Configure apt to be more resilient to temporary network issues
+RUN echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80retries \
+    && mkdir -p /etc/apt/apt.conf.d/
+
+# Install PostgreSQL client dependencies with retry mechanism and DNS options
+RUN for i in 1 2 3 4 5; do \
+      echo "Attempt $i to install packages..." \
+      && apt-get update -y \
+      && apt-get install -y --no-install-recommends \
+        postgresql-client \
+        libpq-dev \
+        gcc \
+        ca-certificates \
+      && apt-get clean \
+      && rm -rf /var/lib/apt/lists/* \
+      && break \
+      || { echo "Attempt $i failed! Retrying in 15 seconds..."; sleep 15; }; \
+    done
 
 COPY server/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

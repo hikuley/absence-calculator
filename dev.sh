@@ -5,7 +5,7 @@
 #   ./dev.sh start  - Start PostgreSQL, backend and frontend servers
 #   ./dev.sh restart - Restart all servers
 #   ./dev.sh stop - Stop all servers
-#   ./dev.sh migrate - Run database migration from CSV to PostgreSQL
+#   ./dev.sh init-db - Initialize database schema
 
 # Configuration
 BACKEND_PORT=5001
@@ -19,7 +19,7 @@ LOGS_DIR="$PROJECT_DIR/logs"
 BACKEND_LOG="$LOGS_DIR/backend.log"
 FRONTEND_LOG="$LOGS_DIR/frontend.log"
 PG_LOG="$LOGS_DIR/postgres.log"
-CSV_FILE_PATH="$PROJECT_DIR/server/data/absence_periods.csv"
+# No CSV file needed anymore
 
 # PostgreSQL configuration
 PG_CONTAINER_NAME="absence-calculator-db"
@@ -38,14 +38,19 @@ is_port_in_use() {
 # Function to check if Docker is installed and running
 check_docker() {
     if ! command -v docker &> /dev/null; then
-        echo "Docker is not installed. Please install Docker first."
-        exit 1
+        echo "Error: Docker is not installed. Please install Docker first."
+        echo "You can download Docker from https://www.docker.com/products/docker-desktop"
+        return 1
     fi
     
     if ! docker info &> /dev/null; then
-        echo "Docker daemon is not running. Please start Docker first."
-        exit 1
+        echo "Warning: Docker daemon is not running. Please start Docker Desktop."
+        echo "PostgreSQL database requires Docker to be running."
+        echo "Start Docker Desktop and then run this script again."
+        return 1
     fi
+    
+    return 0
 }
 
 # Function to check if the virtual environment exists and install required packages
@@ -64,32 +69,38 @@ check_venv() {
     echo "Checking and installing required packages..."
     pip install --quiet fastapi uvicorn pydantic python-dateutil
     
-    # Install PostgreSQL dependencies
-    echo "Installing PostgreSQL dependencies..."
-    pip install --quiet sqlalchemy psycopg2-binary alembic python-dotenv
+    # Install Tortoise ORM and PostgreSQL dependencies
+    echo "Installing Tortoise ORM and PostgreSQL dependencies..."
+    pip install --quiet tortoise-orm asyncpg aerich python-dotenv PyJWT bcrypt
     
-    # Check if installation was successful
-    if ! python -c "import sqlalchemy" &>/dev/null; then
-        echo "Error: Failed to install SQLAlchemy. Please install it manually:"
+    # Check if packages are installed (without importing)
+    if ! pip show tortoise-orm &>/dev/null || ! pip show asyncpg &>/dev/null; then
+        echo "Error: Some required Tortoise ORM packages are missing. Please install them manually:"
         echo "source $VENV_ACTIVATE"
-        echo "pip install sqlalchemy psycopg2-binary alembic python-dotenv"
+        echo "pip install tortoise-orm asyncpg aerich python-dotenv PyJWT bcrypt"
         exit 1
     fi
     
     echo "All required packages are installed."
 }
 
-# Function to start PostgreSQL container
-start_postgres() {
-    echo "Starting PostgreSQL container..."
+# Function to ensure PostgreSQL container is available and running
+ensure_postgres() {
+    # Check if Docker is running
+    if ! docker info &> /dev/null; then
+        echo "Error: Docker is not running. Please start Docker first."
+        return 1
+    fi
     
-    # Check if PostgreSQL container is already running
+    # Check if PostgreSQL container exists and is running
     if docker ps | grep -q "$PG_CONTAINER_NAME"; then
         echo "PostgreSQL container is already running."
         return 0
     fi
     
-    # Check if the container exists but is stopped
+    echo "PostgreSQL container is not running. Starting it automatically..."
+    
+    # If container exists but is stopped, start it
     if docker ps -a | grep -q "$PG_CONTAINER_NAME"; then
         echo "Starting existing PostgreSQL container..."
         docker start "$PG_CONTAINER_NAME" > /dev/null
@@ -125,12 +136,18 @@ start_postgres() {
     return 1
 }
 
-# Function to run database migration
-run_migration() {
-    echo "Running database migration from CSV to PostgreSQL..."
+# Function to start PostgreSQL container (for backward compatibility)
+start_postgres() {
+    ensure_postgres
+    return $?
+}
+
+# Function to initialize database schema
+initialize_database() {
+    echo "Initializing database schema..."
     
-    # Create logs directory if it doesn't exist
-    mkdir -p "$LOGS_DIR"
+    # Activate virtual environment
+    source "$VENV_ACTIVATE"
     
     # Set environment variables for database connection
     export DB_USER="$PG_USER"
@@ -138,43 +155,49 @@ run_migration() {
     export DB_HOST="localhost"
     export DB_PORT="$PG_PORT"
     export DB_NAME="$PG_DB"
-    export CSV_FILE_PATH="$CSV_FILE_PATH"
     
-    # Run migration script
-    source "$VENV_ACTIVATE"
-    cd "$SERVER_DIR" || exit 1
-    
-    # Create database tables
-    echo "Creating database tables..."
-    if ! python -c "from database import Base, engine; Base.metadata.create_all(bind=engine)"; then
-        echo "Error: Failed to create database tables. Check database connection settings."
+    # Create database schema using Tortoise ORM
+    cd "$SERVER_DIR"
+    python -c "from migrations import run_initialize_database; run_initialize_database()" || {
+        echo "Error: Failed to initialize database schema."
         return 1
-    fi
+    }
     
-    # Run migration script
-    echo "Migrating data from CSV to PostgreSQL..."
-    if ! python migrate_csv_to_db.py; then
-        echo "Error: Failed to migrate data from CSV to PostgreSQL."
-        return 1
-    fi
-    
-    echo "Database migration completed successfully."
+    echo "Database schema initialized successfully."
     return 0
 }
 
 # Function to start the backend server
 start_backend() {
-    echo "Starting backend server on port $BACKEND_PORT..."
+    echo "Starting backend server..."
     
-    # Check if port is already in use
-    if is_port_in_use "$BACKEND_PORT"; then
-        echo "Port $BACKEND_PORT is already in use. Stopping the existing server..."
-        lsof -ti :"$BACKEND_PORT" | xargs kill -9 2>/dev/null
-        sleep 1
+    # Check if the backend server is already running
+    if [ -f "$PID_FILE.backend" ]; then
+        BACKEND_PID=$(cat "$PID_FILE.backend")
+        if ps -p "$BACKEND_PID" > /dev/null; then
+            echo "Backend server is already running (PID: $BACKEND_PID)."
+            return 0
+        fi
+        rm "$PID_FILE.backend"
     fi
+    
+    # Check if the port is in use
+    if is_port_in_use "$BACKEND_PORT"; then
+        echo "Error: Port $BACKEND_PORT is already in use. Cannot start backend server."
+        return 1
+    fi
+    
+    # Ensure PostgreSQL is running before starting the backend
+    ensure_postgres || {
+        echo "Error: Cannot start backend server without PostgreSQL."
+        return 1
+    }
     
     # Create logs directory if it doesn't exist
     mkdir -p "$LOGS_DIR"
+    
+    # Activate virtual environment
+    source "$VENV_ACTIVATE"
     
     # Set environment variables for database connection
     export DB_USER="$PG_USER"
@@ -182,20 +205,26 @@ start_backend() {
     export DB_HOST="localhost"
     export DB_PORT="$PG_PORT"
     export DB_NAME="$PG_DB"
-    export CSV_FILE_PATH="$CSV_FILE_PATH"
     
-    # Start the FastAPI server with Uvicorn
-    source "$VENV_ACTIVATE"
-    cd "$SERVER_DIR" || exit 1
-    uvicorn app:app --host 0.0.0.0 --port $BACKEND_PORT --reload > "$BACKEND_LOG" 2>&1 &
+    # Start the backend server
+    cd "$SERVER_DIR"
+    nohup uvicorn app:app --host 0.0.0.0 --port "$BACKEND_PORT" > "$BACKEND_LOG" 2>&1 &
     BACKEND_PID=$!
+    echo $BACKEND_PID > "$PID_FILE.backend"
     
-    echo "Backend server started with PID: $BACKEND_PID"
-    echo "$BACKEND_PID" > "$PID_FILE.backend"
-    
-    # Wait for server to start
+    # Wait for the server to start
     echo "Waiting for backend server to start..."
-    sleep 3
+    for i in {1..10}; do
+        if curl -s http://localhost:$BACKEND_PORT/api/health > /dev/null; then
+            echo "Backend server started successfully!"
+            return 0
+        fi
+        echo -n "."
+        sleep 1
+    done
+    
+    echo "\nError: Backend server failed to start within 10 seconds."
+    return 1
 }
 
 # Function to start the frontend server
@@ -310,6 +339,12 @@ view_logs() {
 stop_postgres() {
     echo "Stopping PostgreSQL container..."
     
+    # Check if Docker is running
+    if ! docker info &> /dev/null; then
+        echo "Docker is not running, no need to stop PostgreSQL container."
+        return 0
+    fi
+    
     # Check if PostgreSQL container is running
     if docker ps | grep -q "$PG_CONTAINER_NAME"; then
         echo "Stopping PostgreSQL container..."
@@ -392,13 +427,18 @@ case "$1" in
         
         # Check requirements
         check_venv
-        check_docker
         
-        # Start PostgreSQL
-        start_postgres || exit 1
+        # Check if Docker is running
+        if ! check_docker; then
+            echo "Error: Cannot start servers without Docker running."
+            exit 1
+        fi
         
-        # Run migration
-        run_migration
+        # Ensure PostgreSQL is running
+        ensure_postgres || exit 1
+        
+        # Initialize database schema
+        initialize_database
         
         # Start application servers
         start_backend
@@ -418,13 +458,18 @@ case "$1" in
         
         # Check requirements
         check_venv
-        check_docker
         
-        # Start PostgreSQL
-        start_postgres || exit 1
+        # Check if Docker is running
+        if ! check_docker; then
+            echo "Error: Cannot restart servers without Docker running."
+            exit 1
+        fi
         
-        # Run migration
-        run_migration
+        # Ensure PostgreSQL is running
+        ensure_postgres || exit 1
+        
+        # Initialize database schema
+        initialize_database
         
         # Start application servers
         start_backend
@@ -444,22 +489,28 @@ case "$1" in
     logs)
         view_logs
         ;;
-    migrate)
+    init-db)
         check_venv
-        check_docker
-        start_postgres || exit 1
-        run_migration
+        
+        # Check if Docker is running
+        if ! check_docker; then
+            echo "Error: Cannot initialize database without Docker running."
+            exit 1
+        fi
+        
+        ensure_postgres || exit 1
+        initialize_database
         ;;
     pg-status)
         check_postgres_status
         ;;
     *)
-        echo "Usage: $0 {start|restart|stop|logs|migrate|pg-status}"
+        echo "Usage: $0 {start|restart|stop|logs|init-db|pg-status}"
         echo "  start     - Start PostgreSQL, backend, and frontend servers"
         echo "  restart   - Restart all servers"
         echo "  stop      - Stop all servers"
         echo "  logs      - View server logs (press Ctrl+C to exit)"
-        echo "  migrate   - Run database migration from CSV to PostgreSQL"
+        echo "  init-db   - Initialize database schema"
         echo "  pg-status - Check PostgreSQL container status"
         exit 1
         ;;

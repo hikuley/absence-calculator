@@ -22,9 +22,9 @@ The application now features a robust PostgreSQL database backend for reliable d
 
 ### Database Integration
 - PostgreSQL database storage for reliable data persistence
-- Automatic migration of data from CSV to PostgreSQL
-- SQLAlchemy ORM for database interactions
-- Alembic for database migrations and schema management
+
+- Tortoise ORM for async database interactions
+- Automatic schema generation and management
 - Backward compatibility with CSV data format
 
 ### Deployment Options
@@ -83,7 +83,7 @@ For local development with Python, PostgreSQL, and a simple HTTP server.
 
 The script automatically:
 - Starts a PostgreSQL container for data storage
-- Creates database tables and migrates data from CSV
+- Creates and initializes database tables
 - Starts the backend FastAPI server on port 5001
 - Starts a frontend HTTP server on port 8000
 - Opens your default browser to http://localhost:8000
@@ -123,7 +123,7 @@ Access the application at:
 
 The first time the application starts, it will automatically:
 1. Create the necessary database tables
-2. Migrate any existing data from the CSV file to PostgreSQL
+
 
 ### 3. Kubernetes Deployment
 
@@ -184,13 +184,9 @@ Access the application at:
 ├── server/                   # Backend server files
 │   ├── app.py                # FastAPI application
 │   ├── database.py           # Database connection and configuration
-│   ├── models.py             # SQLAlchemy models for database tables
-│   ├── migrate_csv_to_db.py  # Data migration utility
-│   ├── data/                 # Data directory for CSV files
-│   │   └── absence_periods.csv # Sample absence periods data
-│   ├── alembic/              # Database migration scripts
-│   │   ├── versions/         # Migration version files
-│   │   └── env.py            # Alembic environment configuration
+│   ├── models.py             # Tortoise ORM models for database tables
+│   ├── data/                 # Data directory
+│   ├── migrations.py         # Database initialization and demo data creation
 │   └── requirements.txt      # Python dependencies including PostgreSQL
 └── .postgres_data/          # Local PostgreSQL data directory (created by dev.sh)
 ```
@@ -222,7 +218,7 @@ This will:
 1. Set up a Python virtual environment if needed
 2. Install all required dependencies including PostgreSQL packages
 3. Start a PostgreSQL container
-4. Create database tables and migrate data from CSV
+4. Create and initialize database tables
 5. Start the backend server
 6. Start the frontend server
 7. Open your browser to http://localhost:8000
@@ -246,11 +242,9 @@ This will stop all components including the PostgreSQL container.
 
 #### Database Migration
 
-To manually migrate data from CSV to PostgreSQL:
 
-```bash
-./dev.sh migrate
-```
+
+
 
 #### Viewing Logs
 
@@ -440,6 +434,6 @@ If you encounter CORS errors in the browser console, ensure that:
 
 If your absence periods aren't appearing:
 
-1. Check that the `absence_periods.csv` file exists in the project root
-2. Ensure it has the correct format with `id`, `start_date`, and `end_date` columns
-3. Verify that the Flask server is running and accessible
+
+1. Verify that the FastAPI server is running and accessible
+2. Check the database connection settings

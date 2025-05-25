@@ -1,17 +1,21 @@
-from fastapi import FastAPI, HTTPException, Response, Request, Depends
+from fastapi import FastAPI, HTTPException, Response, Request, Depends, Header, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, field_validator
-from typing import List, Optional, Dict, Any, Tuple, Union
-from typing_extensions import Annotated
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel, field_validator, ConfigDict, EmailStr
+from typing import List, Optional, Dict, Any, Tuple, Union, cast, Annotated
 import os
 import uuid
+import bcrypt
+import jwt
 from datetime import datetime, timedelta
-from sqlalchemy.orm import Session
 
-# Import database and models
-from database import get_db, engine, Base
-from models import AbsencePeriod
+# Import Tortoise ORM models and database functions
+from tortoise.contrib.fastapi import register_tortoise
+from database import TORTOISE_ORM, init_db, close_db
+from models import User, AbsencePeriod, User_Pydantic, UserIn_Pydantic, Token_Pydantic, AbsencePeriod_Pydantic, AbsencePeriodIn_Pydantic
+# Import the Token model with an alias to avoid naming conflicts
+from models import Token as TokenModel
 
 app = FastAPI(title="Absence Calculator API")
 
@@ -24,18 +28,113 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Security
+security = HTTPBearer()
+
+# JWT Secret key
+JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key")
+
+# Authentication dependency
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token_str = credentials.credentials
+    try:
+        # Verify the JWT token
+        payload = jwt.decode(token_str, JWT_SECRET, algorithms=["HS256"])
+        user_id = payload.get("sub")
+        
+        # Check if token exists in database
+        db_token = await TokenModel.filter(token=token_str).first()
+        if not db_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token or token expired",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+        
+        # Check if token is expired
+        try:
+            # Convert both to UTC for proper comparison
+            current_time = datetime.now().replace(tzinfo=None)
+            token_expiry = db_token.expires_at
+            
+            # If token_expiry has timezone info, convert to naive datetime
+            if hasattr(token_expiry, 'tzinfo') and token_expiry.tzinfo:
+                token_expiry = token_expiry.replace(tzinfo=None)
+                
+            if token_expiry < current_time:
+                await db_token.delete()
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token expired",
+                    headers={"WWW-Authenticate": "Bearer"}
+                )
+        except Exception as e:
+            print(f"Token expiry check error: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token validation error",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+        
+        # Get user
+        user = await User.get(id=user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+        
+        # Return user as dict for compatibility
+        return {
+            "id": str(user.id),
+            "username": user.username,
+            "email": user.email
+        }
+    except jwt.PyJWTError as e:
+        print(f"JWT Error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    except Exception as e:
+        print(f"Authentication error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication error",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
 @app.get("/api/health")
-def health_check():
+async def health_check():
     return {"status": "healthy"}
 
-# Create database tables on startup
+# Initialize Tortoise ORM on startup
 @app.on_event("startup")
-def startup_db_client():
+async def startup_db_client():
     try:
-        Base.metadata.create_all(bind=engine)
-        print("Database tables created successfully")
+        await init_db()
+        print("Backend server started successfully")
     except Exception as e:
-        print(f"Error creating database tables: {e}")
+        print(f"Error during startup: {e}")
+
+# Close Tortoise ORM connections on shutdown
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    try:
+        await close_db()
+        print("Database connections closed")
+    except Exception as e:
+        print(f"Error during shutdown: {e}")
+
+# Register Tortoise ORM with FastAPI
+register_tortoise(
+    app,
+    config=TORTOISE_ORM,
+    generate_schemas=True,
+    add_exception_handlers=True,
+)
 
 # Function to calculate the 180-day rule
 def calculate_180_day_rule(absence_periods, decision_date):
@@ -123,76 +222,7 @@ def calculate_180_day_rule(absence_periods, decision_date):
         "detailed_periods": detailed_periods
     }
 
-def read_absence_periods(db: Session):
-    try:
-        print("DEBUG: Starting read_absence_periods function")
-        print(f"DEBUG: Database engine URL: {db.bind.engine.url}")
-        print("DEBUG: Executing query: AbsencePeriod.query.all()")
-        db_periods = db.query(AbsencePeriod).all()
-        print(f"DEBUG: Query executed, got {len(db_periods)} results")
-        
-        # Print raw database records for debugging
-        for i, period in enumerate(db_periods):
-            print(f"DEBUG: DB Record {i}: id={period.id}, start_date={period.start_date}, end_date={period.end_date}")
-            
-        absence_periods = [period.to_dict() for period in db_periods]
-        print(f"Successfully read {len(absence_periods)} periods from database")
-        if absence_periods:
-            print(f"First period: {absence_periods[0]}")
-        return absence_periods
-    except Exception as e:
-        import traceback
-        print(f"Error reading from database: {e}")
-        traceback.print_exc()
-        return []
-
-def write_absence_period(db: Session, period_data):
-    try:
-        db_period = AbsencePeriod.from_dict(period_data)
-        db.add(db_period)
-        db.commit()
-        db.refresh(db_period)
-        print(f"Successfully wrote period to database: {db_period.id}")
-        return db_period.to_dict()
-    except Exception as e:
-        print(f"Error writing to database: {e}")
-        db.rollback()
-        return None
-
-def update_absence_period(db: Session, period_id: str, period_data):
-    try:
-        db_period = db.query(AbsencePeriod).filter(AbsencePeriod.id == period_id).first()
-        if not db_period:
-            return None
-            
-        # Update fields
-        db_period.start_date = datetime.strptime(period_data["start_date"], "%Y-%m-%d").date() if isinstance(period_data["start_date"], str) else period_data["start_date"]
-        db_period.end_date = datetime.strptime(period_data["end_date"], "%Y-%m-%d").date() if isinstance(period_data["end_date"], str) else period_data["end_date"]
-        
-        db.commit()
-        db.refresh(db_period)
-        print(f"Successfully updated period in database: {db_period.id}")
-        return db_period.to_dict()
-    except Exception as e:
-        print(f"Error updating database: {e}")
-        db.rollback()
-        return None
-
-def delete_absence_period(db: Session, period_id: str):
-    try:
-        db_period = db.query(AbsencePeriod).filter(AbsencePeriod.id == period_id).first()
-        if not db_period:
-            return False
-            
-        db.delete(db_period)
-        db.commit()
-        print(f"Successfully deleted period from database: {period_id}")
-        return True
-    except Exception as e:
-        print(f"Error deleting from database: {e}")
-        db.rollback()
-        return False
-
+# Note: read_absence_periods is now imported from db_helper
 @app.get('/api/health')
 def health_check():
     print("GET /api/health endpoint called")
@@ -200,14 +230,16 @@ def health_check():
     return {"status": "healthy"}
 
 @app.get('/api/absence-periods')
-def get_absence_periods(db: Session = Depends(get_db)):
-    print("GET /api/absence-periods endpoint called")
-    absence_periods = read_absence_periods(db)
-    print(f"Returning {len(absence_periods)} absence periods")
-    return absence_periods
+async def get_absence_periods(current_user: Dict = Depends(get_current_user)):
+    # Get absence periods for the current user
+    absence_periods = await AbsencePeriod.filter(user_id=current_user["id"])
+    # Convert to dict for API response
+    return [period.to_dict() for period in absence_periods]
 
 # Define Pydantic models for request validation
 class AbsencePeriodBase(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+    
     start_date: str
     end_date: str
     
@@ -234,46 +266,73 @@ class AbsencePeriodBase(BaseModel):
 class AbsencePeriodResponse(AbsencePeriodBase):
     id: str
 
-@app.post('/api/absence-periods', status_code=201, response_model=AbsencePeriodResponse)
-def create_absence_period(period: AbsencePeriodBase, db: Session = Depends(get_db)):
-    # Create new period with unique ID
-    new_period = {
-        "id": str(uuid.uuid4()),
-        "start_date": period.start_date,
-        "end_date": period.end_date
-    }
-    
-    # Write to database
-    result = write_absence_period(db, new_period)
-    if not result:
+@app.post('/api/absence-periods', response_model=AbsencePeriodResponse)
+async def create_absence_period(period: AbsencePeriodBase, current_user: Dict = Depends(get_current_user)):
+    try:
+        # Parse dates
+        start_date = datetime.strptime(period.start_date, "%Y-%m-%d").date()
+        end_date = datetime.strptime(period.end_date, "%Y-%m-%d").date()
+        
+        # Get user
+        user = await User.get(id=current_user["id"])
+        
+        # Create absence period
+        new_period = await AbsencePeriod.create(
+            id=uuid.uuid4(),
+            user=user,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        # Return the complete response
+        return {
+            "id": str(new_period.id),
+            "start_date": period.start_date,
+            "end_date": period.end_date
+        }
+    except Exception as e:
+        print(f"Error creating absence period: {e}")
         raise HTTPException(status_code=500, detail="Failed to create absence period")
-    
-    return result
 
 @app.put('/api/absence-periods/{period_id}', response_model=AbsencePeriodResponse)
-def update_absence_period_endpoint(period_id: str, period: AbsencePeriodBase, db: Session = Depends(get_db)):
-    # Update period in database
-    period_data = {
-        "start_date": period.start_date,
-        "end_date": period.end_date
-    }
-    
-    updated_period = update_absence_period(db, period_id, period_data)
-    if not updated_period:
-        raise HTTPException(status_code=404, detail="Absence period not found")
-    
-    return updated_period
+async def update_absence_period_endpoint(period_id: str, period: AbsencePeriodBase, current_user: Dict = Depends(get_current_user)):
+    try:
+        # Convert string dates to datetime.date objects
+        start_date = datetime.strptime(period.start_date, '%Y-%m-%d').date()
+        end_date = datetime.strptime(period.end_date, '%Y-%m-%d').date()
+        
+        # Find the period and check ownership
+        existing_period = await AbsencePeriod.filter(id=period_id, user_id=current_user['id']).first()
+        if not existing_period:
+            raise HTTPException(status_code=404, detail="Absence period not found or not owned by user")
+        
+        # Update the period
+        existing_period.start_date = start_date
+        existing_period.end_date = end_date
+        await existing_period.save()
+        
+        return {"id": str(existing_period.id), "start_date": period.start_date, "end_date": period.end_date}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete('/api/absence-periods/{period_id}')
-def delete_absence_period_endpoint(period_id: str, db: Session = Depends(get_db)):
-    # Delete period from database
-    success = delete_absence_period(db, period_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Absence period not found")
-    
-    return {"message": "Absence period deleted successfully"}
+async def delete_absence_period_endpoint(period_id: str, current_user: Dict = Depends(get_current_user)):
+    try:
+        # Find the period and check ownership
+        existing_period = await AbsencePeriod.filter(id=period_id, user_id=current_user['id']).first()
+        if not existing_period:
+            raise HTTPException(status_code=404, detail="Absence period not found or not owned by user")
+        
+        # Delete the period
+        await existing_period.delete()
+        
+        return {"message": "Absence period deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 class CalculationRequest(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+    
     decision_date: str
     absence_periods: Optional[List[Dict[str, str]]] = None
     
@@ -287,10 +346,15 @@ class CalculationRequest(BaseModel):
             raise ValueError('Invalid date format for decision_date. Use YYYY-MM-DD')
 
 @app.post('/api/calculate')
-def calculate_rule(request: CalculationRequest, db: Session = Depends(get_db)):
+async def calculate_rule(request: CalculationRequest, current_user: Dict = Depends(get_current_user)):
     try:
         # Get absence periods from database if not provided
-        periods = request.absence_periods if request.absence_periods else read_absence_periods(db)
+        if request.absence_periods:
+            periods = request.absence_periods
+        else:
+            # Get absence periods from database using Tortoise ORM
+            db_periods = await AbsencePeriod.filter(user_id=current_user['id'])
+            periods = [period.to_dict() for period in db_periods]
         
         # Convert to the format expected by the calculate_180_day_rule function
         absence_periods_list = []
@@ -324,6 +388,174 @@ def calculate_rule(request: CalculationRequest, db: Session = Depends(get_db)):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+# User registration and authentication models
+class UserCreate(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+    
+    username: str
+    email: EmailStr
+    password: str
+    
+    @field_validator('username')
+    @classmethod
+    def username_must_be_valid(cls, v):
+        if len(v) < 3:
+            raise ValueError('Username must be at least 3 characters')
+        if not v.isalnum():
+            raise ValueError('Username must contain only alphanumeric characters')
+        return v
+    
+    @field_validator('password')
+    @classmethod
+    def password_must_be_strong(cls, v):
+        if len(v) < 8:
+            raise ValueError('Password must be at least 8 characters')
+        return v
+
+class UserLogin(BaseModel):
+    model_config = ConfigDict(extra='ignore')
+    
+    username: str
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+
+class UserResponse(BaseModel):
+    id: str
+    username: str
+    email: str
+
+# Authentication endpoints
+@app.post('/api/signup', response_model=UserResponse)
+async def signup(user: UserCreate):
+    try:
+        # Check if username already exists
+        existing_user = await User.filter(username=user.username).first()
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Username already exists")
+        
+        # Check if email already exists
+        existing_email = await User.filter(email=user.email).first()
+        if existing_email:
+            raise HTTPException(status_code=400, detail="Email already exists")
+        
+        # Hash password
+        password_hash = bcrypt.hashpw(user.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        
+        # Create new user
+        new_user = await User.create(
+            id=uuid.uuid4(),
+            username=user.username,
+            email=user.email,
+            password_hash=password_hash
+        )
+        
+        return {
+            "id": str(new_user.id),
+            "username": new_user.username,
+            "email": new_user.email
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post('/api/login', response_model=TokenResponse)
+async def login(user: UserLogin):
+    try:
+        # Find user by username
+        db_user = await User.filter(username=user.username).first()
+        if not db_user:
+            print(f"User not found: {user.username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+        
+        # Debug info
+        print(f"Found user: {db_user.username}, checking password")
+        print(f"Stored hash: {db_user.password_hash}")
+        
+        # Verify password
+        try:
+            password_matches = bcrypt.checkpw(
+                user.password.encode('utf-8'), 
+                db_user.password_hash.encode('utf-8')
+            )
+            print(f"Password match result: {password_matches}")
+            
+            if not password_matches:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid username or password",
+                    headers={"WWW-Authenticate": "Bearer"}
+                )
+        except Exception as pwd_err:
+            print(f"Password verification error: {pwd_err}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Password verification error",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+        
+        # Create JWT token
+        expiration = datetime.now() + timedelta(hours=24)
+        token_data = {
+            "sub": str(db_user.id),
+            "exp": expiration.timestamp()
+        }
+        token_str = jwt.encode(token_data, JWT_SECRET, algorithm="HS256")
+        
+        # Store token in database
+        try:
+            # Debug info
+            print(f"Creating token for user_id: {db_user.id}, token: {token_str[:10]}...")
+            
+            # Create token with explicit fields
+            token_id = uuid.uuid4()
+            new_token = await TokenModel.create(
+                id=token_id,
+                user=db_user,
+                token=token_str,
+                expires_at=expiration
+            )
+            print(f"Token created successfully with ID: {new_token.id}")
+        except Exception as token_err:
+            print(f"Token creation error: {token_err}")
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail="Token creation error")
+        
+        return {"access_token": token_str, "token_type": "bearer"}
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        print(f"Login error: {e}")
+        raise HTTPException(status_code=500, detail="Authentication error")
+
+@app.post('/api/logout')
+async def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    try:
+        # Get token from header
+        token_str = credentials.credentials
+        
+        # Find token in database
+        token = await TokenModel.filter(token=token_str).first()
+        if not token:
+            raise HTTPException(status_code=400, detail="Invalid token")
+        
+        # Delete token
+        await token.delete()
+        
+        return {"message": "Successfully logged out"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get('/api/me', response_model=UserResponse)
+async def get_current_user_info(current_user: Dict = Depends(get_current_user)):
+    return current_user
 
 if __name__ == "__main__":
     import uvicorn

@@ -8,6 +8,8 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.1.0/dist/chartjs-plugin-annotation.min.js"></script>
+  <script src="config.js"></script>
+  <script src="authentication.js"></script>
   <script>
     // Make sure Chart is defined before trying to use plugins
     document.addEventListener('DOMContentLoaded', function() {
@@ -120,8 +122,60 @@
   </style>
 </head>
 <body>
-  <div class="container mt-4">
-    <h1 class="text-center mb-4">180-Day Rule Calculator</h1>
+  <!-- Authentication Pages -->
+  <div id="auth-container" class="container mt-5" style="max-width: 500px; display: none;">
+    <!-- Login Page -->
+    <div id="login-page" class="card p-4 shadow">
+      <h2 class="text-center mb-4">Login</h2>
+      <form id="login-form">
+        <div class="mb-3">
+          <label for="login-username" class="form-label">Username</label>
+          <input type="text" class="form-control" id="login-username" required>
+        </div>
+        <div class="mb-3">
+          <label for="login-password" class="form-label">Password</label>
+          <input type="password" class="form-control" id="login-password" required>
+        </div>
+        <div id="login-error" class="alert alert-danger" style="display: none;"></div>
+        <button type="submit" class="btn btn-primary w-100 mb-3">Login</button>
+        <p class="text-center">Don't have an account? <a href="#" id="show-signup-link">Sign up</a></p>
+      </form>
+    </div>
+    
+    <!-- Signup Page -->
+    <div id="signup-page" class="card p-4 shadow" style="display: none;">
+      <h2 class="text-center mb-4">Create Account</h2>
+      <form id="signup-form">
+        <div class="mb-3">
+          <label for="signup-username" class="form-label">Username</label>
+          <input type="text" class="form-control" id="signup-username" required>
+          <div class="form-text">At least 3 characters, alphanumeric only</div>
+        </div>
+        <div class="mb-3">
+          <label for="signup-email" class="form-label">Email</label>
+          <input type="email" class="form-control" id="signup-email" required>
+        </div>
+        <div class="mb-3">
+          <label for="signup-password" class="form-label">Password</label>
+          <input type="password" class="form-control" id="signup-password" required>
+          <div class="form-text">At least 8 characters</div>
+        </div>
+        <div id="signup-error" class="alert alert-danger" style="display: none;"></div>
+        <button type="submit" class="btn btn-success w-100 mb-3">Sign Up</button>
+        <p class="text-center">Already have an account? <a href="#" id="show-login-link">Login</a></p>
+      </form>
+    </div>
+  </div>
+  
+  <!-- Main Application -->
+  <div id="app-container" class="container mt-4" style="display: none;">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h1>180-Day Rule Calculator</h1>
+      <div class="d-flex align-items-center">
+        <span id="user-info" class="me-3"></span>
+        <button id="logout-btn" class="btn btn-outline-danger"><i class="fas fa-sign-out-alt"></i> Logout</button>
+      </div>
+    </div>
     
     <div class="row">
       <div class="col-md-5">
@@ -179,6 +233,7 @@
         </div>
       </div>
     </div>
+  </div>
   </div>
   
   <!-- Modal for showing all periods -->
@@ -240,70 +295,178 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="config.js"></script>
   <script>
-    // API URL - Use environment variable if available, otherwise fallback to localhost
-    const API_URL = window.API_URL || 'http://localhost:5001/api';
-    console.log('Using API URL:', API_URL);
-    
-    // For browser access, we need to use the host machine's address
-    // When running in Docker, the browser can't access backend-service directly
-    const BROWSER_API_URL = API_URL.replace('http://backend-service:', 'http://localhost:');
-    console.log('Using Browser API URL:', BROWSER_API_URL);
-    
-    // DOM elements
-    const absenceForm = document.getElementById('absence-form');
-    const startDateInput = document.getElementById('start-date');
-    const endDateInput = document.getElementById('end-date');
-    const decisionDateInput = document.getElementById('decision-date');
-    const calculateBtn = document.getElementById('calculate-btn');
-    const absenceTableBody = document.getElementById('absence-table-body');
-    const resultsContainer = document.getElementById('results-container');
-    const modalTableBody = document.getElementById('modal-table-body');
-    
-    // Set default decision date to today
-    const today = new Date();
-    decisionDateInput.value = today.toISOString().split('T')[0];
-    
-    // Fetch absence periods on page load
-    document.addEventListener('DOMContentLoaded', async () => {
-      await fetchAbsencePeriods();
-      await calculateRule();
-    });
-    
-    // Add or update absence period
-    absenceForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
+    document.addEventListener('DOMContentLoaded', function() {
+      // Authentication elements
+      const authContainer = document.getElementById('auth-container');
+      const loginPage = document.getElementById('login-page');
+      const signupPage = document.getElementById('signup-page');
+      const loginForm = document.getElementById('login-form');
+      const signupForm = document.getElementById('signup-form');
+      const loginError = document.getElementById('login-error');
+      const signupError = document.getElementById('signup-error');
+      const showSignupLink = document.getElementById('show-signup-link');
+      const showLoginLink = document.getElementById('show-login-link');
+      const appContainer = document.getElementById('app-container');
+      const userInfo = document.getElementById('user-info');
+      const logoutBtn = document.getElementById('logout-btn');
       
-      const startDate = startDateInput.value;
-      const endDate = endDateInput.value;
+      // Main app elements
+      const absenceForm = document.getElementById('absence-form');
+      const startDateInput = document.getElementById('start-date');
+      const endDateInput = document.getElementById('end-date');
+      const decisionDateInput = document.getElementById('decision-date');
+      const calculateBtn = document.getElementById('calculate-btn');
+      const absenceTableBody = document.getElementById('absence-table-body');
+      const resultsContainer = document.getElementById('results-container');
       
-      if (new Date(endDate) < new Date(startDate)) {
-        alert('End date must be after start date');
-        return;
+      // Set today as the default decision date
+      const today = new Date();
+      decisionDateInput.value = today.toISOString().split('T')[0];
+      
+      // Check if user is already authenticated
+      checkAuthStatus();
+      
+      // Authentication functions
+      async function checkAuthStatus() {
+        if (isAuthenticated()) {
+          try {
+            // Get user profile
+            const user = await getUserProfile();
+            showAppPage(user);
+          } catch (error) {
+            // Token is invalid or expired
+            removeToken();
+            showLoginPage();
+          }
+        } else {
+          showLoginPage();
+        }
       }
       
-      try {
-        let url = `${BROWSER_API_URL}/absence-periods`;
-        let method = 'POST';
+      function showLoginPage() {
+        authContainer.style.display = 'block';
+        loginPage.style.display = 'block';
+        signupPage.style.display = 'none';
+        appContainer.style.display = 'none';
+      }
+      
+      function showSignupPage() {
+        authContainer.style.display = 'block';
+        loginPage.style.display = 'none';
+        signupPage.style.display = 'block';
+        appContainer.style.display = 'none';
+      }
+      
+      function showAppPage(user) {
+        authContainer.style.display = 'none';
+        appContainer.style.display = 'block';
+        userInfo.textContent = `Welcome, ${user.username}`;
         
-        // Check if we're updating an existing period
-        const updateId = absenceForm.dataset.updateId;
-        if (updateId) {
-          url = `${BROWSER_API_URL}/absence-periods/${updateId}`;
-          method = 'PUT';
+        // Fetch data for the authenticated user
+        fetchAbsencePeriods().then(() => {
+          // Run calculation after fetching absence periods
+          calculateRule();
+        });
+      }
+      
+      // Authentication event listeners
+      showSignupLink.addEventListener('click', function(e) {
+        e.preventDefault();
+        showSignupPage();
+      });
+      
+      showLoginLink.addEventListener('click', function(e) {
+        e.preventDefault();
+        showLoginPage();
+      });
+      
+      loginForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        loginError.style.display = 'none';
+        
+        const username = document.getElementById('login-username').value;
+        const password = document.getElementById('login-password').value;
+        
+        try {
+          await login(username, password);
+          const user = await getUserProfile();
+          showAppPage(user);
+        } catch (error) {
+          loginError.textContent = error.message || 'Login failed';
+          loginError.style.display = 'block';
+        }
+      });
+      
+      signupForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        signupError.style.display = 'none';
+        
+        const username = document.getElementById('signup-username').value;
+        const email = document.getElementById('signup-email').value;
+        const password = document.getElementById('signup-password').value;
+        
+        try {
+          await signup(username, email, password);
+          // Show success message and switch to login
+          alert('Account created successfully! Please login.');
+          showLoginPage();
+        } catch (error) {
+          signupError.textContent = error.message || 'Signup failed';
+          signupError.style.display = 'block';
+        }
+      });
+      
+      logoutBtn.addEventListener('click', async function() {
+        try {
+          await logout();
+          showLoginPage();
+        } catch (error) {
+          console.error('Logout error:', error);
+          // Force logout even if API call fails
+          removeToken();
+          showLoginPage();
+        }
+      });
+      
+      // Fetch absence periods on page load
+      document.addEventListener('DOMContentLoaded', async () => {
+        await fetchAbsencePeriods();
+        await calculateRule();
+      });
+      
+      // Add or update absence period
+      absenceForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const startDate = startDateInput.value;
+        const endDate = endDateInput.value;
+        
+        if (!startDate || !endDate) {
+          alert('Please select both start and end dates');
+          return;
         }
         
-        const response = await fetch(url, {
-          method: method,
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            start_date: startDate,
-            end_date: endDate
-          })
-        });
+        if (new Date(startDate) > new Date(endDate)) {
+          alert('Start date must be before end date');
+          return;
+        }
+        
+        const updateId = absenceForm.dataset.updateId;
+        const method = updateId ? 'PUT' : 'POST';
+        const endpoint = updateId ? `/absence-periods/${updateId}` : `/absence-periods`;
+        
+        try {
+          const response = await apiCall(endpoint, {
+            method,
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              start_date: startDate,
+              end_date: endDate
+            })
+          });
         
         if (response.ok) {
           // Reset the form
@@ -311,7 +474,7 @@
           
           // Refresh the data
           await fetchAbsencePeriods();
-          await calculateRule();
+          // Calculate rule is automatically called after fetchAbsencePeriods
         } else {
           const error = await response.json();
           alert(`Error: ${error.error || `Failed to ${updateId ? 'update' : 'add'} absence period`}`);
@@ -328,8 +491,8 @@
     // Fetch absence periods
     async function fetchAbsencePeriods() {
       try {
-        console.log(`Fetching absence periods from: ${BROWSER_API_URL}/absence-periods`);
-        const response = await fetch(`${BROWSER_API_URL}/absence-periods`);
+        console.log('Fetching absence periods');
+        const response = await apiCall('/absence-periods');
         console.log('Response status:', response.status);
         
         if (!response.ok) {
@@ -340,6 +503,11 @@
         console.log('Received data:', data);
         
         renderAbsencePeriods(data);
+        
+        // Run calculation after fetching absence periods
+        await calculateRule();
+        
+        return data;
       } catch (err) {
         console.error('Error fetching absence periods:', err);
         document.getElementById('absence-table-body').innerHTML = `
@@ -347,6 +515,7 @@
             <td colspan="4" class="text-center text-danger">Error: ${err.message}</td>
           </tr>
         `;
+        return [];
       }
     }
     
@@ -361,7 +530,7 @@
         }
         
         console.log(`Calculating rule with decision date: ${decisionDate}`);
-        const response = await fetch(`${BROWSER_API_URL}/calculate`, {
+        const response = await apiCall('/calculate', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -436,13 +605,13 @@
     async function deleteAbsencePeriod(id) {
       try {
         console.log(`Deleting absence period with ID: ${id}`);
-        const response = await fetch(`${BROWSER_API_URL}/absence-periods/${id}`, {
+        const response = await apiCall(`/absence-periods/${id}`, {
           method: 'DELETE'
         });
         
         if (response.ok) {
           await fetchAbsencePeriods();
-          await calculateRule();
+          // Calculate rule is automatically called after fetchAbsencePeriods
         } else {
           const error = await response.json();
           alert(`Error: ${error.error || 'Failed to delete absence period'}`);
@@ -809,6 +978,10 @@
     
     // Make deleteAbsencePeriod available globally
     window.deleteAbsencePeriod = deleteAbsencePeriod;
-  </script>
+    
+    // Define BROWSER_API_URL for backward compatibility
+    window.BROWSER_API_URL = window.API_URL;
+  });
+</script>
 </body>
 </html>

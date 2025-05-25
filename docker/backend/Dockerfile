@@ -10,9 +10,11 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy requirements first for better caching
 COPY server/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy server files
 COPY server/ ./server/
 
 # Create entrypoint script
@@ -22,11 +24,8 @@ while ! pg_isready -h $DB_HOST -p $DB_PORT -U $DB_USER; do\n\
   sleep 1\n\
 done\n\
 \n\
-echo "PostgreSQL started, running migrations..."\n\
-cd /app/server && python -c "from database import Base, engine; Base.metadata.create_all(bind=engine)"\n\
-\n\
-echo "Migrating data from CSV to database..."\n\
-cd /app/server && python migrate_csv_to_db.py\n\
+echo "PostgreSQL started, initializing database..."\n\
+cd /app/server && python -c "from migrations import run_initialize_database; run_initialize_database()"\n\
 \n\
 echo "Starting application..."\n\
 cd /app/server && exec uvicorn app:app --host 0.0.0.0 --port 5001 "$@"\n\
@@ -34,4 +33,4 @@ cd /app/server && exec uvicorn app:app --host 0.0.0.0 --port 5001 "$@"\n\
 
 EXPOSE 5001
 
-ENTRYPOINT ["/app/entrypoint.sh"] 
+ENTRYPOINT ["/app/entrypoint.sh"]

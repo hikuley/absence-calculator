@@ -1,35 +1,35 @@
-from sqlalchemy import create_engine, Column, String, DateTime
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from tortoise import Tortoise
 import os
-from dotenv import load_dotenv
 
-# Load environment variables from .env file if it exists
-load_dotenv()
-
-# Database connection settings
+# Get database connection details from environment variables
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME", "absence_calculator")
 
-# Create database URL
-DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+# Tortoise ORM database URL
+DATABASE_URL = f"postgres://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
-# Create SQLAlchemy engine
-engine = create_engine(DATABASE_URL)
+# Tortoise ORM models configuration
+TORTOISE_ORM = {
+    "connections": {"default": DATABASE_URL},
+    "apps": {
+        "models": {
+            "models": ["models"],
+            "default_connection": "default",
+        },
+    },
+}
 
-# Create session factory
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Initialize Tortoise ORM
+async def init_db():
+    """Initialize the Tortoise ORM with the database connection"""
+    await Tortoise.init(config=TORTOISE_ORM)
+    # Generate schemas if needed
+    await Tortoise.generate_schemas()
 
-# Create base class for models
-Base = declarative_base()
-
-# Dependency to get database session
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# Close Tortoise ORM connection
+async def close_db():
+    """Close the Tortoise ORM connection"""
+    await Tortoise.close_connections()

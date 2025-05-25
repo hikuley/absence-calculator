@@ -108,29 +108,8 @@ restore_database() {
     fi
 }
 
-# Function to migrate data from CSV to PostgreSQL
-migrate_data() {
-    echo "Migrating data from CSV to PostgreSQL database..."
-    
-    # Get the backend pod name
-    BACKEND_POD=$(kubectl get pods -l app=backend -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
-    
-    if [ -z "$BACKEND_POD" ]; then
-        echo "Error: Backend pod not found. Make sure the application is running."
-        exit 1
-    fi
-    
-    # Run migration script in the backend pod
-    echo "Running migration script in pod $BACKEND_POD..."
-    kubectl exec "$BACKEND_POD" -- bash -c "cd /app/server && python migrate_csv_to_db.py"
-    
-    if [ $? -eq 0 ]; then
-        echo "Data migration completed successfully!"
-    else
-        echo "Error: Data migration failed"
-        exit 1
-    fi
-}
+# Function placeholder for future database operations
+# No CSV migration needed anymore
 
 # Function to open a PostgreSQL shell
 open_shell() {

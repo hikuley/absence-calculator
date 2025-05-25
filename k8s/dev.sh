@@ -61,74 +61,107 @@ start_port_forwarding() {
     
     # Wait for pods to be fully ready before starting port forwarding
     echo "Ensuring all pods are fully ready before starting port forwarding..."
-    sleep 10
+    sleep 15
     
     # Get pod names
-    FRONTEND_POD=$(kubectl get pods -l app=frontend -o jsonpath="{.items[0].metadata.name}")
-    BACKEND_POD=$(kubectl get pods -l app=backend -o jsonpath="{.items[0].metadata.name}")
+    FRONTEND_POD=$(kubectl get pods -l app=frontend -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
+    BACKEND_POD=$(kubectl get pods -l app=backend -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
     
     # Check if pods exist
     if [ -z "$FRONTEND_POD" ] || [ -z "$BACKEND_POD" ]; then
         echo "Error: Could not find frontend or backend pods"
+        kubectl get pods
         return 1
     fi
     
-    # Start frontend port forwarding in background
-    echo "Starting frontend port forwarding to pod $FRONTEND_POD..."
-    kubectl port-forward pod/$FRONTEND_POD 8000:8000 > /tmp/absence-calculator/frontend.log 2>&1 &
+    # Make sure pods are in Running state
+    FRONTEND_STATUS=$(kubectl get pod $FRONTEND_POD -o jsonpath="{.status.phase}" 2>/dev/null)
+    BACKEND_STATUS=$(kubectl get pod $BACKEND_POD -o jsonpath="{.status.phase}" 2>/dev/null)
+    
+    if [ "$FRONTEND_STATUS" != "Running" ] || [ "$BACKEND_STATUS" != "Running" ]; then
+        echo "Error: Pods are not in Running state. Frontend: $FRONTEND_STATUS, Backend: $BACKEND_STATUS"
+        kubectl get pods
+        return 1
+    fi
+    
+    # Try service port forwarding first (more reliable)
+    echo "Starting frontend port forwarding via service..."
+    kubectl port-forward service/frontend 8000:8000 > /tmp/absence-calculator/frontend.log 2>&1 &
     FRONTEND_PID=$!
     echo $FRONTEND_PID > /tmp/absence-calculator/frontend.pid
     
     # Wait a moment for frontend port forwarding to start
-    sleep 5
+    sleep 3
     
-    # Check if frontend port forwarding is working
+    # Check if frontend port forwarding process is running
     if ! kill -0 $FRONTEND_PID 2>/dev/null; then
-        echo "Error: Failed to start frontend port forwarding"
-        stop_port_forwarding
-        return 1
-    fi
-    
-    # Try alternative approach if direct pod forwarding fails
-    if ! curl -s http://localhost:8000 > /dev/null; then
-        echo "Warning: Frontend port forwarding not responding, trying service instead..."
-        kill $FRONTEND_PID 2>/dev/null
-        kubectl port-forward service/frontend 8000:8000 > /tmp/absence-calculator/frontend.log 2>&1 &
+        echo "Warning: Frontend service port forwarding failed, trying pod directly..."
+        kubectl port-forward pod/$FRONTEND_POD 8000:8000 > /tmp/absence-calculator/frontend.log 2>&1 &
         FRONTEND_PID=$!
         echo $FRONTEND_PID > /tmp/absence-calculator/frontend.pid
-        sleep 5
+        sleep 3
+        
+        # Check again
+        if ! kill -0 $FRONTEND_PID 2>/dev/null; then
+            echo "Error: Failed to start frontend port forwarding"
+            stop_port_forwarding
+            return 1
+        fi
     fi
     
-    # Start backend port forwarding in background
-    echo "Starting backend port forwarding to pod $BACKEND_POD..."
-    kubectl port-forward pod/$BACKEND_POD 5001:5001 > /tmp/absence-calculator/backend.log 2>&1 &
+    # Start backend port forwarding via service
+    echo "Starting backend port forwarding via service..."
+    kubectl port-forward service/backend 5001:5001 > /tmp/absence-calculator/backend.log 2>&1 &
     BACKEND_PID=$!
     echo $BACKEND_PID > /tmp/absence-calculator/backend.pid
     
     # Wait a moment for backend port forwarding to start
-    sleep 5
+    sleep 3
     
-    # Check if backend port forwarding is working
+    # Check if backend port forwarding process is running
     if ! kill -0 $BACKEND_PID 2>/dev/null; then
-        echo "Error: Failed to start backend port forwarding"
-        stop_port_forwarding
-        return 1
-    fi
-    
-    # Try alternative approach if direct pod forwarding fails
-    if ! curl -s http://localhost:5001/api/health > /dev/null; then
-        echo "Warning: Backend port forwarding not responding, trying service instead..."
-        kill $BACKEND_PID 2>/dev/null
-        kubectl port-forward service/backend 5001:5001 > /tmp/absence-calculator/backend.log 2>&1 &
+        echo "Warning: Backend service port forwarding failed, trying pod directly..."
+        kubectl port-forward pod/$BACKEND_POD 5001:5001 > /tmp/absence-calculator/backend.log 2>&1 &
         BACKEND_PID=$!
         echo $BACKEND_PID > /tmp/absence-calculator/backend.pid
-        sleep 5
+        sleep 3
+        
+        # Check again
+        if ! kill -0 $BACKEND_PID 2>/dev/null; then
+            echo "Error: Failed to start backend port forwarding"
+            stop_port_forwarding
+            return 1
+        fi
     fi
     
-    echo "Port forwarding started successfully"
-    echo "Frontend: http://localhost:8000"
-    echo "Backend API: http://localhost:5001/api"
-    return 0
+    # Final verification - try to access the services
+    echo "Verifying port forwarding connections..."
+    local max_attempts=5
+    local attempt=1
+    local success=false
+    
+    while [ $attempt -le $max_attempts ]; do
+        if curl -s http://localhost:8000 > /dev/null && curl -s http://localhost:5001/api/health > /dev/null; then
+            success=true
+            break
+        fi
+        echo "Waiting for port forwarding to stabilize (attempt $attempt/$max_attempts)..."
+        sleep 3
+        attempt=$((attempt+1))
+    done
+    
+    if [ "$success" = "true" ]; then
+        echo "Port forwarding started successfully"
+        echo "Frontend: http://localhost:8000"
+        echo "Backend API: http://localhost:5001/api"
+        return 0
+    else
+        echo "Warning: Port forwarding started but services may not be fully accessible yet"
+        echo "Try manually accessing:"
+        echo "Frontend: http://localhost:8000"
+        echo "Backend API: http://localhost:5001/api"
+        return 0  # Return success anyway to continue the deployment
+    fi
 }
 
 # Function to stop port forwarding
@@ -281,10 +314,6 @@ start() {
         echo "Starting minikube..."
         minikube start
     fi
-
-    # Create data directory in minikube
-    echo "Creating data directory in minikube..."
-    minikube ssh "sudo mkdir -p /server/data && sudo chmod 777 /server/data"
 
     # Configure Docker daemon
     echo "Configuring Docker daemon..."

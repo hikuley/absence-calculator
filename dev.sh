@@ -22,7 +22,7 @@ PG_LOG="$LOGS_DIR/postgres.log"
 # No CSV file needed anymore
 
 # PostgreSQL configuration
-PG_CONTAINER_NAME="absence-calculator-db"
+PG_CONTAINER_NAME="absence-calculator-db-dev"
 PG_PORT=5432
 PG_USER="postgres"
 PG_PASSWORD="postgres"
@@ -35,6 +35,34 @@ is_port_in_use() {
     return $?
 }
 
+# Function to start Docker (macOS only)
+start_docker() {
+    # Only works on macOS
+    if [[ "$(uname)" == "Darwin" ]]; then
+        echo "Attempting to start Docker Desktop..."
+        open -a Docker
+        
+        # Wait for Docker to start
+        echo "Waiting for Docker to start (this may take a minute)..."
+        for i in {1..60}; do
+            if docker info >/dev/null 2>&1; then
+                echo "Docker has been started successfully."
+                return 0
+            fi
+            echo -n "."
+            sleep 2
+        done
+        
+        echo ""
+        echo "Error: Failed to start Docker automatically."
+        echo "Please start Docker Desktop manually and try again."
+        return 1
+    else
+        echo "Please start Docker manually and try again."
+        return 1
+    fi
+}
+
 # Function to check if Docker is installed and running
 check_docker() {
     if ! command -v docker &> /dev/null; then
@@ -43,11 +71,9 @@ check_docker() {
         return 1
     fi
     
-    if ! docker info &> /dev/null; then
-        echo "Warning: Docker daemon is not running. Please start Docker Desktop."
-        echo "PostgreSQL database requires Docker to be running."
-        echo "Start Docker Desktop and then run this script again."
-        return 1
+    if ! docker info >/dev/null 2>&1; then
+        echo "Warning: Docker daemon is not running. Attempting to start it..."
+        start_docker || return 1
     fi
     
     return 0
@@ -84,10 +110,10 @@ check_venv() {
     echo "All required packages are installed."
 }
 
-# Function to ensure PostgreSQL container is available and running
+# Function to ensure PostgreSQL is running
 ensure_postgres() {
     # Check if Docker is running
-    if ! docker info &> /dev/null; then
+    if ! check_docker; then
         echo "Error: Docker is not running. Please start Docker first."
         return 1
     fi
@@ -96,44 +122,45 @@ ensure_postgres() {
     if docker ps | grep -q "$PG_CONTAINER_NAME"; then
         echo "PostgreSQL container is already running."
         return 0
-    fi
-    
-    echo "PostgreSQL container is not running. Starting it automatically..."
-    
-    # If container exists but is stopped, start it
-    if docker ps -a | grep -q "$PG_CONTAINER_NAME"; then
-        echo "Starting existing PostgreSQL container..."
-        docker start "$PG_CONTAINER_NAME" > /dev/null
     else
-        echo "Creating and starting new PostgreSQL container..."
+        echo "PostgreSQL container is not running."
         
-        # Create data directory if it doesn't exist
-        mkdir -p "$PG_DATA_DIR"
-        
-        # Run PostgreSQL container
-        docker run -d \
-            --name "$PG_CONTAINER_NAME" \
-            -e POSTGRES_USER="$PG_USER" \
-            -e POSTGRES_PASSWORD="$PG_PASSWORD" \
-            -e POSTGRES_DB="$PG_DB" \
-            -p "$PG_PORT:5432" \
-            -v "$PG_DATA_DIR:/var/lib/postgresql/data" \
-            postgres:15 > /dev/null
-    fi
-    
-    # Wait for PostgreSQL to start
-    echo "Waiting for PostgreSQL to start..."
-    for i in {1..30}; do
-        if docker exec "$PG_CONTAINER_NAME" pg_isready -U "$PG_USER" &> /dev/null; then
-            echo "PostgreSQL is ready!"
-            return 0
+        # Check if container exists but is stopped
+        if docker ps -a | grep -q "$PG_CONTAINER_NAME"; then
+            echo "Starting existing PostgreSQL container..."
+            docker start "$PG_CONTAINER_NAME" > /dev/null
+        else
+            echo "Creating and starting new PostgreSQL container..."
+            
+            # Create data directory if it doesn't exist
+            mkdir -p "$PG_DATA_DIR"
+            
+            # Start PostgreSQL container
+            docker run -d \
+                --name "$PG_CONTAINER_NAME" \
+                -e POSTGRES_USER="$PG_USER" \
+                -e POSTGRES_PASSWORD="$PG_PASSWORD" \
+                -e POSTGRES_DB="$PG_DB" \
+                -p "$PG_PORT:5432" \
+                -v "$PG_DATA_DIR:/var/lib/postgresql/data" \
+                postgres:15 > /dev/null
         fi
-        echo -n "."
-        sleep 1
-    done
-    
-    echo "\nError: PostgreSQL failed to start within 30 seconds."
-    return 1
+        
+        # Wait for PostgreSQL to start
+        echo "Waiting for PostgreSQL to start..."
+        for i in {1..30}; do
+            if docker exec "$PG_CONTAINER_NAME" pg_isready -U "$PG_USER" &> /dev/null; then
+                echo "PostgreSQL container is now running."
+                return 0
+            fi
+            echo -n "."
+            sleep 1
+        done
+        
+        echo ""
+        echo "Error: Failed to start PostgreSQL container."
+        return 1
+    fi
 }
 
 # Function to start PostgreSQL container (for backward compatibility)
@@ -156,9 +183,9 @@ initialize_database() {
     export DB_PORT="$PG_PORT"
     export DB_NAME="$PG_DB"
     
-    # Create database schema using Tortoise ORM
+    # Create database schema using Tortoise ORM models
     cd "$SERVER_DIR"
-    python -c "from migrations import run_initialize_database; run_initialize_database()" || {
+    python -c "from models import run_schema_migration; run_schema_migration()" || {
         echo "Error: Failed to initialize database schema."
         return 1
     }
@@ -347,8 +374,9 @@ stop_postgres() {
     
     # Check if PostgreSQL container is running
     if docker ps | grep -q "$PG_CONTAINER_NAME"; then
-        echo "Stopping PostgreSQL container..."
+        echo "Stopping PostgreSQL container $PG_CONTAINER_NAME..."
         docker stop "$PG_CONTAINER_NAME" > /dev/null
+        echo "PostgreSQL container stopped successfully."
     else
         echo "PostgreSQL container is not running."
     fi
@@ -428,13 +456,7 @@ case "$1" in
         # Check requirements
         check_venv
         
-        # Check if Docker is running
-        if ! check_docker; then
-            echo "Error: Cannot start servers without Docker running."
-            exit 1
-        fi
-        
-        # Ensure PostgreSQL is running
+        # Ensure PostgreSQL is running (will try to start Docker if needed)
         ensure_postgres || exit 1
         
         # Initialize database schema
@@ -459,13 +481,7 @@ case "$1" in
         # Check requirements
         check_venv
         
-        # Check if Docker is running
-        if ! check_docker; then
-            echo "Error: Cannot restart servers without Docker running."
-            exit 1
-        fi
-        
-        # Ensure PostgreSQL is running
+        # Ensure PostgreSQL is running (will try to start Docker if needed)
         ensure_postgres || exit 1
         
         # Initialize database schema
@@ -492,12 +508,7 @@ case "$1" in
     init-db)
         check_venv
         
-        # Check if Docker is running
-        if ! check_docker; then
-            echo "Error: Cannot initialize database without Docker running."
-            exit 1
-        fi
-        
+        # Ensure PostgreSQL is running (will try to start Docker if needed)
         ensure_postgres || exit 1
         initialize_database
         ;;

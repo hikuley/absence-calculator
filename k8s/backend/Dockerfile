@@ -16,12 +16,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy server code
 COPY server/ ./server/
 
-# Ensure data directory exists
-RUN mkdir -p /app/server/data
-
-# Copy the absence_periods.csv file
-COPY server/data/absence_periods.csv /app/server/data/
-
 # Create entrypoint script
 RUN echo '#!/bin/bash\n\
 echo "Waiting for PostgreSQL to start..."\n\
@@ -30,7 +24,7 @@ while ! pg_isready -h $DB_HOST -p $DB_PORT -U $DB_USER; do\n\
 done\n\
 \n\
 echo "PostgreSQL started, running migrations..."\n\
-cd /app/server && python -c "from database import Base, engine; Base.metadata.create_all(bind=engine)"\n\
+cd /app/server && python -c "from models import run_schema_migration; run_schema_migration()"\n\
 \n\
 echo "Starting application..."\n\
 cd /app/server && exec uvicorn app:app --host 0.0.0.0 --port 5001 --workers 1 "$@"\n\

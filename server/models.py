@@ -1,6 +1,8 @@
-from tortoise import fields, models
+from tortoise import fields, models, Tortoise
 from tortoise.contrib.pydantic import pydantic_model_creator
 import uuid
+import asyncio
+import os
 from datetime import datetime, timedelta, date
 
 class User(models.Model):
@@ -79,3 +81,104 @@ UserIn_Pydantic = pydantic_model_creator(User, name="UserIn", exclude_readonly=T
 Token_Pydantic = pydantic_model_creator(Token, name="Token")
 AbsencePeriod_Pydantic = pydantic_model_creator(AbsencePeriod, name="AbsencePeriod")
 AbsencePeriodIn_Pydantic = pydantic_model_creator(AbsencePeriod, name="AbsencePeriodIn", exclude_readonly=True, exclude=("id", "created_at", "user_id"))
+
+
+# Database migration utilities
+async def ensure_schema_consistency():
+    """Ensure database schema is consistent with models"""
+    # Get connection
+    conn = Tortoise.get_connection("default")
+    
+    try:
+        # Check for columns in absence_periods table
+        query_columns = """
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'absence_periods'
+        """
+        result_columns = await conn.execute_query(query_columns)
+        columns = [row[0] for row in result_columns[1]]
+        print(f"Existing columns in absence_periods: {columns}")
+        
+        # Check for created_at column
+        if 'created_at' not in columns:
+            print("Adding created_at column to absence_periods table...")
+            await conn.execute_script("""
+            ALTER TABLE absence_periods 
+            ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            """)
+            print("created_at column added successfully!")
+        
+        # Check for user_id column
+        if 'user_id' not in columns:
+            # If we have a 'user_id' column but it's named differently
+            if any(col.endswith('_id') for col in columns):
+                user_col = next((col for col in columns if col.endswith('_id')), None)
+                if user_col and user_col != 'user_id':
+                    print(f"Renaming column {user_col} to user_id...")
+                    await conn.execute_script(f"""
+                    ALTER TABLE absence_periods 
+                    RENAME COLUMN {user_col} TO user_id
+                    """)
+                    print("Column renamed successfully!")
+            else:
+                print("Adding user_id column to absence_periods table...")
+                await conn.execute_script("""
+                ALTER TABLE absence_periods 
+                ADD COLUMN user_id UUID REFERENCES users(id) ON DELETE CASCADE
+                """)
+                print("user_id column added successfully!")
+    except Exception as e:
+        print(f"Error ensuring schema consistency: {e}")
+
+
+def run_schema_migration():
+    """Run the schema migration function"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    # Get database connection details from environment variables
+    DB_USER = os.getenv("DB_USER", "postgres")
+    DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
+    DB_HOST = os.getenv("DB_HOST", "localhost")
+    DB_PORT = os.getenv("DB_PORT", "5432")
+    DB_NAME = os.getenv("DB_NAME", "absence_calculator")
+    
+    # Tortoise ORM database URL
+    DATABASE_URL = f"postgres://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    
+    # Tortoise ORM models configuration
+    TORTOISE_ORM = {
+        "connections": {"default": DATABASE_URL},
+        "apps": {
+            "models": {
+                "models": ["models"],
+                "default_connection": "default",
+            },
+        },
+    }
+    
+    async def _run_migration():
+        # Connect to the database
+        await Tortoise.init(config=TORTOISE_ORM)
+        
+        # Generate schemas for any missing tables
+        await Tortoise.generate_schemas()
+        
+        # Ensure schema consistency
+        await ensure_schema_consistency()
+        
+        # Close the connection
+        await Tortoise.close_connections()
+    
+    # Run the migration
+    loop.run_until_complete(_run_migration())
+    loop.close()
+
+
+# Run migration if this file is executed directly
+if __name__ == "__main__":
+    print("Running database schema migration...")
+    run_schema_migration()
+    print("Migration complete!")
+

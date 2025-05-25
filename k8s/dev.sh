@@ -54,114 +54,140 @@ wait_for_pods() {
 
 # Function to start port forwarding
 start_port_forwarding() {
-    echo "Starting port forwarding..."
-    
-    # Create PID file directory if it doesn't exist
+    # Create logs directory if it doesn't exist
     mkdir -p /tmp/absence-calculator
+    
+    # Stop any existing port forwarding
+    stop_port_forwarding
     
     # Wait for pods to be fully ready before starting port forwarding
     echo "Ensuring all pods are fully ready before starting port forwarding..."
-    sleep 15
     
-    # Get pod names
-    FRONTEND_POD=$(kubectl get pods -l app=frontend -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
-    BACKEND_POD=$(kubectl get pods -l app=backend -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
-    
-    # Check if pods exist
-    if [ -z "$FRONTEND_POD" ] || [ -z "$BACKEND_POD" ]; then
-        echo "Error: Could not find frontend or backend pods"
-        kubectl get pods
-        return 1
-    fi
-    
-    # Make sure pods are in Running state
-    FRONTEND_STATUS=$(kubectl get pod $FRONTEND_POD -o jsonpath="{.status.phase}" 2>/dev/null)
-    BACKEND_STATUS=$(kubectl get pod $BACKEND_POD -o jsonpath="{.status.phase}" 2>/dev/null)
-    
-    if [ "$FRONTEND_STATUS" != "Running" ] || [ "$BACKEND_STATUS" != "Running" ]; then
-        echo "Error: Pods are not in Running state. Frontend: $FRONTEND_STATUS, Backend: $BACKEND_STATUS"
-        kubectl get pods
-        return 1
-    fi
-    
-    # Try service port forwarding first (more reliable)
-    echo "Starting frontend port forwarding via service..."
-    kubectl port-forward service/frontend 8000:8000 > /tmp/absence-calculator/frontend.log 2>&1 &
-    FRONTEND_PID=$!
-    echo $FRONTEND_PID > /tmp/absence-calculator/frontend.pid
-    
-    # Wait a moment for frontend port forwarding to start
-    sleep 3
-    
-    # Check if frontend port forwarding process is running
-    if ! kill -0 $FRONTEND_PID 2>/dev/null; then
-        echo "Warning: Frontend service port forwarding failed, trying pod directly..."
-        kubectl port-forward pod/$FRONTEND_POD 8000:8000 > /tmp/absence-calculator/frontend.log 2>&1 &
-        FRONTEND_PID=$!
-        echo $FRONTEND_PID > /tmp/absence-calculator/frontend.pid
-        sleep 3
+    # Function to wait for pod readiness with timeout
+    wait_for_pod_ready() {
+        local app_label=$1
+        local max_attempts=30
+        local attempt=1
+        local ready=false
         
-        # Check again
-        if ! kill -0 $FRONTEND_PID 2>/dev/null; then
-            echo "Error: Failed to start frontend port forwarding"
-            stop_port_forwarding
+        echo "Waiting for $app_label pod to be fully ready..."
+        
+        while [ $attempt -le $max_attempts ] && [ "$ready" = "false" ]; do
+            # Get pod name
+            local pod_name=$(kubectl get pods -l app=$app_label -o jsonpath="{.items[0].metadata.name}" 2>/dev/null)
+            
+            # Check if pod exists
+            if [ -z "$pod_name" ]; then
+                echo "Attempt $attempt/$max_attempts: No $app_label pod found yet, waiting..."
+                sleep 5
+                attempt=$((attempt+1))
+                continue
+            fi
+            
+            # Check pod status
+            local pod_status=$(kubectl get pod $pod_name -o jsonpath="{.status.phase}" 2>/dev/null)
+            local container_ready=$(kubectl get pod $pod_name -o jsonpath="{.status.containerStatuses[0].ready}" 2>/dev/null)
+            
+            if [ "$pod_status" = "Running" ] && [ "$container_ready" = "true" ]; then
+                echo "$app_label pod $pod_name is ready!"
+                ready=true
+                echo "$pod_name" > "/tmp/absence-calculator/${app_label}_pod_name"
+            else
+                echo "Attempt $attempt/$max_attempts: $app_label pod status: $pod_status, container ready: $container_ready"
+                sleep 5
+                attempt=$((attempt+1))
+            fi
+        done
+        
+        if [ "$ready" = "false" ]; then
+            echo "Error: $app_label pod did not become ready after $max_attempts attempts"
             return 1
         fi
-    fi
-    
-    # Start backend port forwarding via service
-    echo "Starting backend port forwarding via service..."
-    kubectl port-forward service/backend 5001:5001 > /tmp/absence-calculator/backend.log 2>&1 &
-    BACKEND_PID=$!
-    echo $BACKEND_PID > /tmp/absence-calculator/backend.pid
-    
-    # Wait a moment for backend port forwarding to start
-    sleep 3
-    
-    # Check if backend port forwarding process is running
-    if ! kill -0 $BACKEND_PID 2>/dev/null; then
-        echo "Warning: Backend service port forwarding failed, trying pod directly..."
-        kubectl port-forward pod/$BACKEND_POD 5001:5001 > /tmp/absence-calculator/backend.log 2>&1 &
-        BACKEND_PID=$!
-        echo $BACKEND_PID > /tmp/absence-calculator/backend.pid
-        sleep 3
         
-        # Check again
-        if ! kill -0 $BACKEND_PID 2>/dev/null; then
-            echo "Error: Failed to start backend port forwarding"
-            stop_port_forwarding
-            return 1
-        fi
-    fi
-    
-    # Final verification - try to access the services
-    echo "Verifying port forwarding connections..."
-    local max_attempts=5
-    local attempt=1
-    local success=false
-    
-    while [ $attempt -le $max_attempts ]; do
-        if curl -s http://localhost:8000 > /dev/null && curl -s http://localhost:5001/api/health > /dev/null; then
-            success=true
-            break
-        fi
-        echo "Waiting for port forwarding to stabilize (attempt $attempt/$max_attempts)..."
-        sleep 3
-        attempt=$((attempt+1))
-    done
-    
-    if [ "$success" = "true" ]; then
-        echo "Port forwarding started successfully"
-        echo "Frontend: http://localhost:8000"
-        echo "Backend API: http://localhost:5001/api"
         return 0
-    else
-        echo "Warning: Port forwarding started but services may not be fully accessible yet"
-        echo "Try manually accessing:"
-        echo "Frontend: http://localhost:8000"
-        echo "Backend API: http://localhost:5001/api"
-        return 0  # Return success anyway to continue the deployment
+    }
+    
+    # Wait for both frontend and backend pods to be ready
+    wait_for_pod_ready "frontend" || return 1
+    wait_for_pod_ready "backend" || return 1
+    
+    # Get pod names from saved files
+    FRONTEND_POD=$(cat /tmp/absence-calculator/frontend_pod_name 2>/dev/null)
+    BACKEND_POD=$(cat /tmp/absence-calculator/backend_pod_name 2>/dev/null)
+    
+    # Function to start port forwarding with retries
+    start_port_forward() {
+        local pod_name=$1
+        local local_port=$2
+        local pod_port=$3
+        local log_file=$4
+        local pid_file=$5
+        local max_attempts=3
+        local attempt=1
+        
+        while [ $attempt -le $max_attempts ]; do
+            echo "Attempt $attempt/$max_attempts: Starting port forwarding for $pod_name on port $local_port:$pod_port"
+            
+            # Kill any existing processes using the port
+            lsof -ti:$local_port | xargs kill -9 2>/dev/null || true
+            
+            # Start port forwarding
+            kubectl port-forward pod/$pod_name $local_port:$pod_port > $log_file 2>&1 &
+            local pid=$!
+            echo $pid > $pid_file
+            
+            # Wait for port forwarding to establish
+            echo "Waiting for port forwarding to establish..."
+            sleep 5
+            
+            # Check if port forwarding is working
+            if lsof -i:$local_port | grep -q LISTEN; then
+                echo "Port forwarding for $pod_name on port $local_port:$pod_port is working!"
+                return 0
+            else
+                echo "Port forwarding for $pod_name on port $local_port:$pod_port failed to establish"
+                kill $pid 2>/dev/null || true
+                attempt=$((attempt+1))
+                sleep 2
+            fi
+        done
+        
+        echo "Error: Failed to establish port forwarding for $pod_name after $max_attempts attempts"
+        return 1
+    }
+    
+    # Start port forwarding for frontend and backend
+    echo "Starting port forwarding for frontend..."
+    start_port_forward "$FRONTEND_POD" 8000 8000 "/tmp/absence-calculator/frontend.log" "/tmp/absence-calculator/frontend.pid" || {
+        echo "Warning: Could not establish frontend port forwarding, trying service instead"
+        kubectl port-forward service/frontend 8000:8000 > /tmp/absence-calculator/frontend.log 2>&1 &
+        echo $! > /tmp/absence-calculator/frontend.pid
+    }
+    
+    echo "Starting port forwarding for backend..."
+    start_port_forward "$BACKEND_POD" 5001 5001 "/tmp/absence-calculator/backend.log" "/tmp/absence-calculator/backend.pid" || {
+        echo "Warning: Could not establish backend port forwarding, trying service instead"
+        kubectl port-forward service/backend 5001:5001 > /tmp/absence-calculator/backend.log 2>&1 &
+        echo $! > /tmp/absence-calculator/backend.pid
+    }
+    
+    # Wait a moment for port forwarding to start
+    sleep 5
+    
+    # Check if processes are running
+    FRONTEND_PID=$(cat /tmp/absence-calculator/frontend.pid 2>/dev/null)
+    BACKEND_PID=$(cat /tmp/absence-calculator/backend.pid 2>/dev/null)
+    
+    if ! ps -p $FRONTEND_PID > /dev/null || ! ps -p $BACKEND_PID > /dev/null; then
+        echo "Warning: One or more port forwarding processes failed to start"
+        echo "Frontend PID: $FRONTEND_PID, Backend PID: $BACKEND_PID"
+        echo "Continuing anyway..."
     fi
+    
+    echo "Port forwarding started"
+    echo "Frontend: http://localhost:8000"
+    echo "Backend API: http://localhost:5001/api"
+    return 0
 }
 
 # Function to stop port forwarding
@@ -314,6 +340,12 @@ start() {
         echo "Starting minikube..."
         minikube start
     fi
+    
+    # Ensure PostgreSQL data directory exists
+    PG_DATA_DIR="/Users/halilibrahimkuley/ws/absence-calculator/.postgres_data"
+    echo "Ensuring PostgreSQL data directory exists: $PG_DATA_DIR"
+    mkdir -p "$PG_DATA_DIR"
+    chmod -R 777 "$PG_DATA_DIR"
 
     # Configure Docker daemon
     echo "Configuring Docker daemon..."
@@ -338,6 +370,7 @@ start() {
     kubectl delete -f k8s/backend-deployment.yaml 2>/dev/null
     kubectl delete -f k8s/frontend-deployment.yaml 2>/dev/null
     kubectl delete -f k8s/postgres-deployment.yaml 2>/dev/null
+    # No need to delete PersistentVolumeClaim as we're using hostPath
 
     # Apply Kubernetes configurations
     echo "Applying Kubernetes configurations..."

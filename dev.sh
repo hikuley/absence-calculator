@@ -515,14 +515,43 @@ case "$1" in
     pg-status)
         check_postgres_status
         ;;
+    frontend)
+        # Only start the frontend server
+        echo "Starting only the frontend server..."
+        
+        # Stop any existing frontend server
+        if [ -f "$PID_FILE.frontend" ]; then
+            FRONTEND_PID=$(cat "$PID_FILE.frontend")
+            if ps -p "$FRONTEND_PID" > /dev/null; then
+                echo "Stopping existing frontend server (PID: $FRONTEND_PID)..."
+                kill -9 "$FRONTEND_PID" 2>/dev/null
+            fi
+            rm "$PID_FILE.frontend"
+        fi
+        
+        if is_port_in_use "$FRONTEND_PORT"; then
+            echo "Stopping any process using port $FRONTEND_PORT..."
+            lsof -ti :"$FRONTEND_PORT" | xargs kill -9 2>/dev/null
+        fi
+        
+        # Start the frontend server
+        start_frontend
+        open_browser
+        
+        echo ""
+        echo "Frontend is now running!"
+        echo "Frontend interface: http://localhost:$FRONTEND_PORT"
+        echo "Use './dev.sh stop' to stop all servers."
+        ;;
     *)
-        echo "Usage: $0 {start|restart|stop|logs|init-db|pg-status}"
+        echo "Usage: $0 {start|restart|stop|logs|init-db|pg-status|frontend}"
         echo "  start     - Start PostgreSQL, backend, and frontend servers"
         echo "  restart   - Restart all servers"
         echo "  stop      - Stop all servers"
         echo "  logs      - View server logs (press Ctrl+C to exit)"
         echo "  init-db   - Initialize database schema"
         echo "  pg-status - Check PostgreSQL container status"
+        echo "  frontend  - Start only the frontend server"
         exit 1
         ;;
 esac

@@ -2,6 +2,8 @@ from fastapi import FastAPI, HTTPException, Response, Request, Depends, Header, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel, field_validator, ConfigDict, EmailStr
 from typing import List, Optional, Dict, Any, Tuple, Union, cast, Annotated
 import os
@@ -17,7 +19,23 @@ from models import User, AbsencePeriod, User_Pydantic, UserIn_Pydantic, Token_Py
 # Import the Token model with an alias to avoid naming conflicts
 from models import Token as TokenModel
 
-app = FastAPI(title="Absence Calculator API")
+# Initialize FastAPI with detailed metadata for Swagger UI
+app = FastAPI(
+    title="Absence Calculator API",
+    description="API for calculating the 180-day rule for absence periods and managing user accounts",
+    version="1.0.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+    contact={
+        "name": "Absence Calculator Support",
+        "email": "support@absencecalculator.com"
+    },
+    license_info={
+        "name": "MIT License",
+        "url": "https://opensource.org/licenses/MIT"
+    }
+)
 
 # Configure CORS to allow requests from any origin
 app.add_middleware(
@@ -36,6 +54,17 @@ JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key")
 
 # Authentication dependency
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Dependency to get the current authenticated user from the JWT token.
+    
+    Args:
+        credentials: The HTTP Authorization credentials containing the JWT token
+        
+    Returns:
+        Dict: The user information
+        
+    Raises:
+        HTTPException: If the token is invalid, expired, or the user is not found
+    """
     token_str = credentials.credentials
     try:
         # Verify the JWT token
@@ -106,13 +135,20 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             headers={"WWW-Authenticate": "Bearer"}
         )
 
-@app.get("/api/health")
+@app.get("/api/health", 
+    summary="Health Check",
+    description="Returns the health status of the API",
+    tags=["System"],
+    response_description="Health status of the API"
+)
 async def health_check():
+    """Check if the API is running and healthy."""
     return {"status": "healthy"}
 
 # Initialize Tortoise ORM on startup
 @app.on_event("startup")
 async def startup_db_client():
+    """Initialize the database connection on application startup."""
     try:
         await init_db()
         print("Backend server started successfully")
@@ -122,6 +158,7 @@ async def startup_db_client():
 # Close Tortoise ORM connections on shutdown
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    """Close the database connection on application shutdown."""
     try:
         await close_db()
         print("Database connections closed")
@@ -229,7 +266,12 @@ def health_check():
     print("DEBUG: Health check endpoint called")
     return {"status": "healthy"}
 
-@app.get('/api/absence-periods')
+@app.get('/api/absence-periods',
+    summary="Get All Absence Periods",
+    description="Retrieves all absence periods for the authenticated user",
+    tags=["Absence Periods"],
+    response_description="List of absence periods"
+)
 async def get_absence_periods(current_user: Dict = Depends(get_current_user)):
     # Get absence periods for the current user
     absence_periods = await AbsencePeriod.filter(user_id=current_user["id"])
@@ -238,6 +280,7 @@ async def get_absence_periods(current_user: Dict = Depends(get_current_user)):
 
 # Define Pydantic models for request validation
 class AbsencePeriodBase(BaseModel):
+    """Base model for absence period data validation."""
     model_config = ConfigDict(extra='ignore')
     
     start_date: str
@@ -266,7 +309,13 @@ class AbsencePeriodBase(BaseModel):
 class AbsencePeriodResponse(AbsencePeriodBase):
     id: str
 
-@app.post('/api/absence-periods', response_model=AbsencePeriodResponse)
+@app.post('/api/absence-periods',
+    summary="Create Absence Period",
+    description="Creates a new absence period for the authenticated user",
+    tags=["Absence Periods"],
+    response_description="Created absence period with ID",
+    status_code=status.HTTP_201_CREATED
+)
 async def create_absence_period(period: AbsencePeriodBase, current_user: Dict = Depends(get_current_user)):
     try:
         # Parse dates
@@ -294,7 +343,12 @@ async def create_absence_period(period: AbsencePeriodBase, current_user: Dict = 
         print(f"Error creating absence period: {e}")
         raise HTTPException(status_code=500, detail="Failed to create absence period")
 
-@app.put('/api/absence-periods/{period_id}', response_model=AbsencePeriodResponse)
+@app.put('/api/absence-periods/{period_id}',
+    summary="Update Absence Period",
+    description="Updates an existing absence period by ID",
+    tags=["Absence Periods"],
+    response_description="Updated absence period"
+)
 async def update_absence_period_endpoint(period_id: str, period: AbsencePeriodBase, current_user: Dict = Depends(get_current_user)):
     try:
         # Convert string dates to datetime.date objects
@@ -315,7 +369,12 @@ async def update_absence_period_endpoint(period_id: str, period: AbsencePeriodBa
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete('/api/absence-periods/{period_id}')
+@app.delete('/api/absence-periods/{period_id}',
+    summary="Delete Absence Period",
+    description="Deletes an absence period by ID",
+    tags=["Absence Periods"],
+    response_description="Deletion confirmation message"
+)
 async def delete_absence_period_endpoint(period_id: str, current_user: Dict = Depends(get_current_user)):
     try:
         # Find the period and check ownership
@@ -331,6 +390,7 @@ async def delete_absence_period_endpoint(period_id: str, current_user: Dict = De
         raise HTTPException(status_code=500, detail=str(e))
 
 class CalculationRequest(BaseModel):
+    """Request model for 180-day rule calculation."""
     model_config = ConfigDict(extra='ignore')
     
     decision_date: str
@@ -345,7 +405,12 @@ class CalculationRequest(BaseModel):
         except ValueError:
             raise ValueError('Invalid date format for decision_date. Use YYYY-MM-DD')
 
-@app.post('/api/calculate')
+@app.post('/api/calculate',
+    summary="Calculate 180-Day Rule",
+    description="Calculates if the 180-day rule is satisfied based on absence periods",
+    tags=["Calculations"],
+    response_description="Calculation results including days in UK and compliance status"
+)
 async def calculate_rule(request: CalculationRequest, current_user: Dict = Depends(get_current_user)):
     try:
         # Get absence periods from database if not provided
@@ -391,6 +456,7 @@ async def calculate_rule(request: CalculationRequest, current_user: Dict = Depen
 
 # User registration and authentication models
 class UserCreate(BaseModel):
+    """Model for user registration data validation."""
     model_config = ConfigDict(extra='ignore')
     
     username: str
@@ -414,22 +480,31 @@ class UserCreate(BaseModel):
         return v
 
 class UserLogin(BaseModel):
+    """Model for user login data validation."""
     model_config = ConfigDict(extra='ignore')
     
     username: str
     password: str
 
 class TokenResponse(BaseModel):
+    """Response model for successful authentication."""
     access_token: str
     token_type: str
 
 class UserResponse(BaseModel):
+    """Response model for user information."""
     id: str
     username: str
     email: str
 
 # Authentication endpoints
-@app.post('/api/signup', response_model=UserResponse)
+@app.post('/api/signup',
+    summary="User Registration",
+    description="Register a new user account",
+    tags=["Authentication"],
+    response_description="Created user information",
+    status_code=status.HTTP_201_CREATED
+)
 async def signup(user: UserCreate):
     try:
         # Check if username already exists
@@ -461,7 +536,13 @@ async def signup(user: UserCreate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post('/api/login', response_model=TokenResponse)
+@app.post('/api/login',
+    response_model=TokenResponse,
+    summary="User Login",
+    description="Authenticate a user and receive a JWT token",
+    tags=["Authentication"],
+    response_description="JWT token for authentication"
+)
 async def login(user: UserLogin):
     try:
         # Find user by username
@@ -535,7 +616,12 @@ async def login(user: UserLogin):
         print(f"Login error: {e}")
         raise HTTPException(status_code=500, detail="Authentication error")
 
-@app.post('/api/logout')
+@app.post('/api/logout',
+    summary="User Logout",
+    description="Invalidate the current JWT token",
+    tags=["Authentication"],
+    response_description="Logout confirmation message"
+)
 async def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
     try:
         # Get token from header
@@ -553,9 +639,29 @@ async def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get('/api/me', response_model=UserResponse)
+@app.get('/api/me',
+    response_model=UserResponse,
+    summary="Get Current User",
+    description="Get information about the currently authenticated user",
+    tags=["Users"],
+    response_description="Current user information"
+)
 async def get_current_user_info(current_user: Dict = Depends(get_current_user)):
     return current_user
+
+# Custom OpenAPI schema configuration
+@app.get("/api/openapi.json", include_in_schema=False)
+async def get_open_api_endpoint():
+    return get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+
+@app.get("/api/docs", include_in_schema=False)
+async def get_documentation():
+    return get_swagger_ui_html(openapi_url="/api/openapi.json", title=f"{app.title} - Swagger UI")
 
 if __name__ == "__main__":
     import uvicorn

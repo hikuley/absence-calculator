@@ -85,3 +85,6 @@ temp/
 
 # Database files
 .postgres_data
+
+# Redis and other cache files
+.redis_data

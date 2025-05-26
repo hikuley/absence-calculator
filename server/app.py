@@ -7,7 +7,7 @@ import os
 from database import TORTOISE_ORM
 
 # Import routers from modules
-from auth import auth_router
+from auth import auth_router, AuthMiddleware
 from periods import periods_router
 from health import health_router, register_db_events
 
@@ -22,6 +22,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add authentication middleware
+app.add_middleware(AuthMiddleware)
 
 # Include routers from modules
 app.include_router(auth_router)

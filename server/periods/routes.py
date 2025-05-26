@@ -1,24 +1,24 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List, Dict
 import uuid
 from datetime import datetime
 
 from models import AbsencePeriod, User
-from auth.dependencies import get_current_user
+from auth.request_user import get_request_user
 from .models import AbsencePeriodBase, AbsencePeriodResponse, CalculationRequest
 from utils.calculation import calculate_180_day_rule
 
 router = APIRouter(prefix="/api", tags=["absence_periods"])
 
 @router.get('/absence-periods', response_model=List[Dict])
-async def get_absence_periods(current_user: Dict = Depends(get_current_user)):
+async def get_absence_periods(request: Request, current_user: Dict = Depends(get_request_user)):
     """Get all absence periods for the current user"""
     user = await User.get(id=current_user["id"])
     periods = await AbsencePeriod.filter(user=user)
     return [period.to_dict() for period in periods]
 
 @router.post('/absence-periods', response_model=AbsencePeriodResponse)
-async def create_absence_period(period: AbsencePeriodBase, current_user: Dict = Depends(get_current_user)):
+async def create_absence_period(period: AbsencePeriodBase, request: Request, current_user: Dict = Depends(get_request_user)):
     """Create a new absence period for the current user"""
     try:
         # Parse dates
@@ -46,7 +46,7 @@ async def create_absence_period(period: AbsencePeriodBase, current_user: Dict = 
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put('/absence-periods/{period_id}')
-async def update_absence_period_endpoint(period_id: str, period: AbsencePeriodBase, current_user: Dict = Depends(get_current_user)):
+async def update_absence_period_endpoint(period_id: str, period: AbsencePeriodBase, request: Request, current_user: Dict = Depends(get_request_user)):
     """Update an existing absence period"""
     try:
         # Parse dates
@@ -72,7 +72,7 @@ async def update_absence_period_endpoint(period_id: str, period: AbsencePeriodBa
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete('/absence-periods/{period_id}')
-async def delete_absence_period_endpoint(period_id: str, current_user: Dict = Depends(get_current_user)):
+async def delete_absence_period_endpoint(period_id: str, request: Request, current_user: Dict = Depends(get_request_user)):
     """Delete an absence period"""
     try:
         # Get period
@@ -92,18 +92,18 @@ async def delete_absence_period_endpoint(period_id: str, current_user: Dict = De
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post('/calculate')
-async def calculate_rule(request: CalculationRequest, current_user: Dict = Depends(get_current_user)):
+async def calculate_rule(calc_request: CalculationRequest, request: Request, current_user: Dict = Depends(get_request_user)):
     """Calculate the 180-day rule based on absence periods"""
     try:
         # Parse decision date
-        decision_date = datetime.strptime(request.decision_date, "%Y-%m-%d").date()
+        decision_date = datetime.strptime(calc_request.decision_date, "%Y-%m-%d").date()
         
         # Get absence periods
         absence_periods = []
         
-        if request.absence_periods:
+        if calc_request.absence_periods:
             # Use provided absence periods
-            for period in request.absence_periods:
+            for period in calc_request.absence_periods:
                 start_date = datetime.strptime(period["start_date"], "%Y-%m-%d").date()
                 end_date = datetime.strptime(period["end_date"], "%Y-%m-%d").date()
                 absence_periods.append((start_date, end_date))

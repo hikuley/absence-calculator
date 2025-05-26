@@ -319,6 +319,7 @@
       const calculateBtn = document.getElementById('calculate-btn');
       const absenceTableBody = document.getElementById('absence-table-body');
       const resultsContainer = document.getElementById('results-container');
+      const modalTableBody = document.getElementById('modal-table-body');
       
       // Set today as the default decision date
       const today = new Date();
@@ -741,11 +742,28 @@
     window.showAllPeriods = function(periods) {
       modalTableBody.innerHTML = '';
       
+      // Convert periods to array if it's an object (from backend)
+      let periodsArray = periods;
+      if (periods && typeof periods === 'object' && !Array.isArray(periods)) {
+        periodsArray = Object.entries(periods).map(([period, days]) => ({
+          period: period,
+          days: typeof days === 'number' ? days : parseInt(days, 10)
+        }));
+      }
+      
+      // Sort by date
+      periodsArray.sort((a, b) => {
+        const dateA = new Date(a.period.split(' to ')[0]);
+        const dateB = new Date(b.period.split(' to ')[0]);
+        return dateA - dateB;
+      });
+      
       // Update the periods count in the footer
       const periodsCountElement = document.getElementById('periods-count');
-      periodsCountElement.textContent = `${periods.length} periods`;
+      periodsCountElement.textContent = `${periodsArray.length} periods`;
       
-      periods.forEach(item => {
+      // Add each period to the modal
+      periodsArray.forEach(item => {
         const rowClass = item.days > 180 ? 'table-danger' : '';
         const badgeClass = item.days <= 180 ? 'success' : 'danger';
         const statusSymbol = item.days <= 180 ? '✓' : '✗';

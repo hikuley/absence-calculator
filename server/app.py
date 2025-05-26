@@ -4,11 +4,12 @@ from tortoise.contrib.fastapi import register_tortoise
 import os
 
 # Import database configuration
-from database import TORTOISE_ORM, init_db, close_db
+from database import TORTOISE_ORM
 
 # Import routers from modules
 from auth import auth_router
 from periods import periods_router
+from health import health_router, register_db_events
 
 # Create FastAPI application
 app = FastAPI(title="Absence Calculator API")
@@ -25,21 +26,10 @@ app.add_middleware(
 # Include routers from modules
 app.include_router(auth_router)
 app.include_router(periods_router)
+app.include_router(health_router)
 
-# Health check endpoint
-@app.get("/api/health")
-async def health_check():
-    return {"status": "healthy"}
-
-# Initialize Tortoise ORM on startup
-@app.on_event("startup")
-async def startup_db_client():
-    await init_db()
-
-# Close Tortoise ORM connections on shutdown
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    await close_db()
+# Register database event handlers
+register_db_events(app)
 
 # Register Tortoise ORM with FastAPI
 register_tortoise(

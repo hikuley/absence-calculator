@@ -8,16 +8,21 @@ from typing import List
 from models import User, Token as TokenModel
 from .dependencies import JWT_SECRET
 
-class AuthMiddleware:
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.types import ASGIApp
+
+class AuthMiddleware(BaseHTTPMiddleware):
     """Middleware for JWT authentication at the request level"""
     
-    def __init__(self, exempt_paths: List[str] = None):
+    def __init__(self, app: ASGIApp, exempt_paths: List[str] = None):
         """
         Initialize the middleware with paths that don't require authentication
         
         Args:
+            app: The ASGI application
             exempt_paths: List of API paths that don't require authentication
         """
+        super().__init__(app)
         self.exempt_paths = exempt_paths or [
             "/api/login",
             "/api/signup",
@@ -27,7 +32,7 @@ class AuthMiddleware:
             "/openapi.json"
         ]
     
-    async def __call__(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint):
         """
         Process the request and validate JWT token if needed
         

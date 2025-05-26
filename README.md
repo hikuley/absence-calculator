@@ -1,6 +1,6 @@
 # Absence Calculator
 
-A comprehensive application for calculating compliance with the UK's 180-day residency rule, with multiple deployment options and PostgreSQL database integration.
+A comprehensive application for calculating compliance with the UK's 180-day residency rule for residency applications. Features a modern web interface, PostgreSQL database integration, and multiple deployment options.
 
 ## Overview
 
@@ -20,12 +20,12 @@ The application now features a robust PostgreSQL database backend for reliable d
 - Modal view for displaying all 12-month periods
 - Visual chart displaying absence days over a 5-year period
 
-### Database Integration
-- PostgreSQL database storage for reliable data persistence
-
-- Tortoise ORM for async database interactions
-- Automatic schema generation and management
-- Backward compatibility with CSV data format
+### Technical Features
+- **Backend**: FastAPI server with async request handling
+- **Database**: PostgreSQL with Tortoise ORM for data persistence
+- **Authentication**: JWT-based authentication system
+- **CORS**: Configurable CORS settings via environment variables
+- **Frontend**: Responsive web interface with modern JavaScript
 
 ### Deployment Options
 - Standard development setup with PostgreSQL integration
@@ -208,7 +208,7 @@ cd absence-calculator
 
 ### Step 2: Start the Application
 
-The enhanced development script handles everything automatically:
+The development script handles everything automatically:
 
 ```bash
 ./dev.sh start
@@ -238,13 +238,15 @@ This will:
 
 This will stop all components including the PostgreSQL container.
 
-### Advanced Usage
+### Development Options
 
-#### Database Migration
+#### Frontend-Only Mode
 
+To start only the frontend server (useful when debugging the backend separately):
 
-
-
+```bash
+./dev.sh frontend
+```
 
 #### Viewing Logs
 
@@ -259,6 +261,16 @@ To view logs from all components:
 ```bash
 ./dev.sh pg-status
 ```
+
+#### IntelliJ IDEA Debug Configuration
+
+A debug configuration for the FastAPI backend server is available with the following environment variables:
+- DB_USER=postgres
+- DB_PASSWORD=postgres
+- DB_HOST=localhost
+- DB_PORT=5432
+- DB_NAME=absence_calculator
+- DISABLE_CORS=0
 
 ## Docker Deployment Instructions
 
@@ -383,57 +395,53 @@ The application implements the following logic for the 180-day rule calculation:
 
 ### Standard Setup Issues
 
-If you see an error like "Address already in use" when starting the Flask server:
-
-1. Find the process using the port:
-   ```bash
-   lsof -i :5001
-   ```
-
-2. Kill the process:
-   ```bash
-   kill -9 <PID>
-   ```
-
-### Docker Issues
-
-1. Check if the ports 8000 and 5001 are available on your system
-2. Ensure the required files exist in the correct locations
-3. Check the container logs:
-   ```bash
-   ./docker/docker-dev.sh logs
-   ```
-
-### Kubernetes Issues
-
-1. Check pod status:
-   ```bash
-   kubectl get pods
-   ```
-
-2. View detailed pod information:
-   ```bash
-   kubectl describe pod <pod-name>
-   ```
-
-3. Check application logs:
-   ```bash
-   ./k8s/dev.sh logs
-   ```
-
-4. For port forwarding issues, verify if ports 8080 and 5001 are available
+- **Port already in use**:
+  ```bash
+  lsof -i :5001  # Find the process
+  kill -9 <PID>  # Kill the process
+  ```
 
 ### CORS Issues
 
-If you encounter CORS errors in the browser console, ensure that:
+The application has a flexible CORS configuration that can be toggled with the `DISABLE_CORS` environment variable:
+- `DISABLE_CORS=0`: CORS enabled (default for local development)
+- `DISABLE_CORS=1`: CORS disabled (used in Docker environment)
 
-1. The Flask server is running with CORS enabled (already configured in app.py)
-2. You're accessing the frontend via an HTTP server, not directly opening the HTML file
+If you encounter CORS errors:
+1. Check that the FastAPI server is running with the correct CORS settings
+2. Ensure you're accessing the frontend via the HTTP server
 
-### Data Not Showing Up
+### Docker Issues
 
-If your absence periods aren't appearing:
+- Verify ports 8000 and 5001 are available
+- Check container logs: `./docker/docker-dev.sh logs`
 
+### Kubernetes Issues
 
-1. Verify that the FastAPI server is running and accessible
-2. Check the database connection settings
+- Check pod status: `kubectl get pods`
+- View pod details: `kubectl describe pod <pod-name>`
+- Check logs: `./k8s/dev.sh logs`
+
+## Contributing
+
+### Development Workflow
+
+1. Clone the repository
+2. Set up the development environment: `./dev.sh start`
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+### Code Structure
+
+- **Frontend**: HTML/CSS/JavaScript in the `frontend/` directory
+- **Backend**: Python FastAPI application in the `server/` directory
+- **Database**: PostgreSQL with Tortoise ORM models in `server/models.py`
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+---
+
+*Last updated: May 2025*
